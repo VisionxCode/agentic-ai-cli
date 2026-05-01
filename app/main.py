@@ -66,6 +66,9 @@ def _build_orchestrator(logger: logging.Logger) -> JobOrchestrator:
             "replace_html_lines",
             "insert_html_after_line",
             "write_html_file",
+            "list_source_files",
+            "read_text_file",
+            "write_text_file",
         ],
     )
     logger.info(
@@ -149,6 +152,8 @@ async def get_result(job_id: str) -> dict:
     return {
         "job_id": job_id,
         "source": str(workspace / "source.html"),
+        "source_root": str(workspace / "src"),
+        "entrypoint": str(workspace / "src" / "index.html"),
         "generated_image": str(workspace / "generated_image.png"),
         "report": str(workspace / "report.json"),
     }
@@ -165,6 +170,8 @@ async def list_iterations(job_id: str) -> dict:
             {
                 "iteration": item.name,
                 "source": str(item / "source.html"),
+                "source_root": str(item / "src"),
+                "entrypoint": str(item / "src" / "index.html"),
                 "generated_image": str(item / "generated_image.png"),
                 "evaluation": str(item / "evaluation.json"),
             }

@@ -95,9 +95,11 @@ class AgentImageInputTests(unittest.TestCase):
             prompt_data = json.loads(prompt)
             self.assertEqual("<html>old</html>", result)
             self.assertEqual(str(source_path), prompt_data["source_path"])
-            self.assertIn("read/search line ranges", str(prompt))
+            self.assertEqual(str(source_path.parent), prompt_data["source_root"])
+            self.assertIn("list_source_files", str(prompt))
+            self.assertIn("read_text_file", str(prompt))
             self.assertIn("replace_html_lines", str(prompt))
-            self.assertIn("Do not recreate the document from scratch", str(prompt))
+            self.assertIn("supporting .css and .js files", str(prompt))
 
         asyncio.run(run_test())
 

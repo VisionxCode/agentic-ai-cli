@@ -26,7 +26,7 @@ class Evaluator(Protocol):
 
 
 class Renderer(Protocol):
-    async def render(self, *, source_html: str, output_path: Path, viewport: dict[str, int]) -> Path: ...
+    async def render(self, *, source_path: Path, output_path: Path, viewport: dict[str, int]) -> Path: ...
 
 
 @dataclass(frozen=True)
@@ -92,11 +92,12 @@ class JobOrchestrator:
         current_source: str | None = None
         previous_evaluation: dict[str, Any] | None = None
         last_screenshot: Path | None = None
-        source_path = workspace.root / "working" / "source.html"
+        source_root = workspace.root / "working" / "src"
+        source_path = source_root / "index.html"
         source_path.parent.mkdir(parents=True, exist_ok=True)
 
         for iteration in range(1, self.settings.max_iterations + 1):
-            source_before = source_path.read_text(encoding="utf-8") if source_path.exists() else None
+            source_before = _source_tree_snapshot(source_root)
             self.logger.info(
                 "Iteration %s/%s: asking coder agent to generate/edit HTML at %s",
                 iteration,
@@ -115,7 +116,7 @@ class JobOrchestrator:
                 self.settings.max_iterations,
                 len(current_source),
             )
-            if previous_evaluation is not None and source_before == current_source:
+            if previous_evaluation is not None and source_before == _source_tree_snapshot(source_root):
                 self.logger.warning(
                     "Iteration %s/%s: coder did not change working source; evaluation may repeat",
                     iteration,
@@ -132,7 +133,7 @@ class JobOrchestrator:
                 screenshot_path,
             )
             last_screenshot = await self.renderer.render(
-                source_html=current_source,
+                source_path=source_path,
                 output_path=screenshot_path,
                 viewport=viewport,
             )
@@ -148,6 +149,7 @@ class JobOrchestrator:
             workspace.save_iteration(
                 number=iteration,
                 source_html=current_source,
+                source_root=source_root,
                 generated_image=last_screenshot,
                 evaluation=evaluation,
             )
@@ -169,6 +171,7 @@ class JobOrchestrator:
                 )
                 final = workspace.save_final(
                     source_html=current_source,
+                    source_root=source_root,
                     generated_image=last_screenshot,
                     report=evaluation,
                 )
@@ -192,6 +195,7 @@ class JobOrchestrator:
         )
         final = workspace.save_final(
             source_html=current_source,
+            source_root=source_root,
             generated_image=last_screenshot,
             report=previous_evaluation,
         )
@@ -205,3 +209,13 @@ class JobOrchestrator:
             final_report_path=final.report,
             report=previous_evaluation,
         )
+
+
+def _source_tree_snapshot(source_root: Path) -> dict[str, str] | None:
+    if not source_root.exists():
+        return None
+    return {
+        str(path.relative_to(source_root)).replace("\\", "/"): path.read_text(encoding="utf-8")
+        for path in sorted(source_root.rglob("*"))
+        if path.is_file()
+    }

@@ -133,6 +133,34 @@ def build_html_file_tools() -> list:
         log_tool_usage("write_html_file", path=file_path, chars=len(content), changed=True)
         return "HTML file written."
 
+    @function_tool
+    def list_source_files(directory: str) -> list[str]:
+        """List files in a source directory, including CSS and JavaScript files."""
+        root = _path(directory)
+        files = [
+            str(path.relative_to(root)).replace("\\", "/")
+            for path in sorted(root.rglob("*"))
+            if path.is_file()
+        ]
+        log_tool_usage("list_source_files", path=root, matches=len(files))
+        return files
+
+    @function_tool
+    def read_text_file(path: str) -> str:
+        """Read any text source file, such as HTML, CSS, or JavaScript."""
+        content = _path(path).read_text(encoding="utf-8")
+        log_tool_usage("read_text_file", path=_path(path), chars=len(content))
+        return content
+
+    @function_tool
+    def write_text_file(path: str, content: str) -> str:
+        """Write any text source file, such as HTML, CSS, or JavaScript."""
+        file_path = _path(path)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(content, encoding="utf-8")
+        log_tool_usage("write_text_file", path=file_path, chars=len(content), changed=True)
+        return "Text file written."
+
     return [
         read_html_file,
         search_html_file,
@@ -140,4 +168,7 @@ def build_html_file_tools() -> list:
         replace_html_lines,
         insert_html_after_line,
         write_html_file,
+        list_source_files,
+        read_text_file,
+        write_text_file,
     ]

@@ -32,28 +32,35 @@ class CoderAgentClient:
         previous_evaluation: dict[str, Any] | None,
     ) -> str:
         source_exists = source_path.exists()
+        source_root = source_path.parent
         prompt = {
-            "task": "Generate or revise a single self-contained HTML document matching the original image.",
+            "task": "Generate or revise a multi-file HTML/CSS/JavaScript app matching the original image.",
             "source_path": str(source_path),
+            "source_root": str(source_root),
             "workflow": (
-                "If this is the first iteration, create the complete HTML and write it to source_path. "
-                "On later iterations, use the available file tools to read/search line ranges in "
-                "source_path, then make targeted edits with replace_html_lines or insert_html_after_line. "
-                "Do not recreate the document from scratch unless the existing file is unusable."
+                "If this is the first iteration, create source_path as the entry HTML file and create "
+                "any supporting CSS or JavaScript files in source_root, for example styles.css and app.js. "
+                "Use relative links from index.html so Playwright can load the files from disk. "
+                "On later iterations, use list_source_files plus read_text_file/read_html_lines to inspect "
+                "the existing app, then make targeted edits with replace_html_lines, "
+                "insert_html_after_line, or write_text_file as appropriate. Do not recreate all files from "
+                "scratch unless the existing app is unusable."
             ),
             "revision_rules": [
                 "Before editing, search for the affected section and read nearby numbered lines.",
-                "Prefer small line-range replacements over full-file writes.",
-                "Preserve useful existing HTML/CSS structure.",
-                "Use write_html_file only for the first draft or if source_path is corrupt/unusable.",
+                "Prefer small line-range replacements in index.html and focused CSS/JavaScript file updates.",
+                "Preserve useful existing HTML/CSS/JavaScript structure.",
+                "Use write_html_file only for the first HTML draft or if source_path is corrupt/unusable.",
+                "Use write_text_file to create or update supporting .css and .js files in source_root.",
                 "After edits are saved, return UPDATED_SOURCE_READY instead of the whole document.",
             ],
             "source_exists": source_exists,
             "current_source_preview": current_source[:4000] if current_source else None,
             "previous_evaluation": previous_evaluation,
             "output_contract": (
-                "Persist the final HTML in source_path. If you return complete HTML, it will be written "
-                "to source_path as a fallback. Otherwise return UPDATED_SOURCE_READY."
+                "Persist the entry HTML in source_path and supporting assets in source_root. If you return "
+                "complete HTML, it will be written to source_path as a fallback. Otherwise return "
+                "UPDATED_SOURCE_READY."
             ),
         }
         input_items = user_message_with_content(

@@ -8,21 +8,31 @@ from app.asyncio_compat import configure_windows_event_loop_policy
 
 
 class PlaywrightScreenshotRenderer:
-    async def render(self, *, source_html: str, output_path: Path, viewport: dict[str, int]) -> Path:
-        html_path = output_path.with_name("source.html")
-        html_path.write_text(source_html, encoding="utf-8")
+    async def render(
+        self,
+        *,
+        output_path: Path,
+        viewport: dict[str, int],
+        source_path: Path | None = None,
+        source_html: str | None = None,
+    ) -> Path:
+        if source_path is None:
+            if source_html is None:
+                raise ValueError("Either source_path or source_html is required.")
+            source_path = output_path.with_name("source.html")
+            source_path.write_text(source_html, encoding="utf-8")
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         if os.name == "nt":
             return await asyncio.to_thread(
                 self._render_in_fresh_event_loop,
-                html_path,
+                source_path,
                 output_path,
                 viewport,
             )
 
         return await self._render_with_playwright(
-            html_path=html_path,
+            html_path=source_path,
             output_path=output_path,
             viewport=viewport,
         )

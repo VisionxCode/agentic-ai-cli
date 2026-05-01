@@ -18,8 +18,10 @@ class FakeCoder:
         if previous_evaluation:
             if self.change_on_revision:
                 source_path.write_text("<html>improved</html>", encoding="utf-8")
+                (source_path.parent / "app.js").write_text("document.body.dataset.ready = 'yes';", encoding="utf-8")
             return source_path.read_text(encoding="utf-8")
         source_path.write_text("<html>first</html>", encoding="utf-8")
+        (source_path.parent / "styles.css").write_text("body { margin: 0; }", encoding="utf-8")
         return source_path.read_text(encoding="utf-8")
 
 
@@ -51,8 +53,8 @@ class FakeRenderer:
         self.sources = []
         self.output_paths = []
 
-    async def render(self, *, source_html, output_path, viewport):
-        self.sources.append(source_html)
+    async def render(self, *, source_path, output_path, viewport):
+        self.sources.append(Path(source_path).read_text(encoding="utf-8"))
         self.output_paths.append(Path(output_path))
         Path(output_path).write_bytes(b"png")
         return Path(output_path)
@@ -111,12 +113,18 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result.final_source_path.exists())
             self.assertTrue(result.final_generated_image_path.exists())
             self.assertEqual(
-                root / "workspaces" / "job-abc" / "working" / "source.html",
+                root / "workspaces" / "job-abc" / "working" / "src" / "index.html",
                 coder.calls[0][1],
             )
             self.assertEqual(coder.calls[0][1], coder.calls[1][1])
             self.assertIsNotNone(coder.calls[1][3])
             self.assertEqual(renderer.sources, ["<html>first</html>", "<html>improved</html>"])
+            final_src = root / "workspaces" / "job-abc" / "final" / "src"
+            self.assertEqual((final_src / "styles.css").read_text(encoding="utf-8"), "body { margin: 0; }")
+            self.assertEqual(
+                (final_src / "app.js").read_text(encoding="utf-8"),
+                "document.body.dataset.ready = 'yes';",
+            )
             self.assertEqual(
                 renderer.output_paths,
                 [
