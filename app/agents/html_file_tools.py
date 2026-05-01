@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.job_logging import log_tool_usage
+
 
 def _path(path: str) -> Path:
     return Path(path).expanduser().resolve()
@@ -20,6 +22,7 @@ def read_html_line_range(path: str, start_line: int, end_line: int) -> str:
     lines = _read_lines(path)
     start = max(1, start_line)
     end = min(len(lines), end_line)
+    log_tool_usage("read_html_lines", path=_path(path), start_line=start, end_line=end)
     if start > end:
         return ""
     return "\n".join(
@@ -31,6 +34,13 @@ def replace_html_line_range(path: str, start_line: int, end_line: int, replaceme
     """Replace a 1-indexed inclusive line range in an HTML file."""
     lines = _read_lines(path)
     if start_line < 1 or end_line < start_line or end_line > len(lines):
+        log_tool_usage(
+            "replace_html_lines",
+            path=_path(path),
+            start_line=start_line,
+            end_line=end_line,
+            changed=False,
+        )
         return f"No replacement made: invalid range {start_line}-{end_line}."
     new_lines = replacement.splitlines(keepends=True)
     if new_lines and not new_lines[-1].endswith(("\n", "\r")):
@@ -39,6 +49,14 @@ def replace_html_line_range(path: str, start_line: int, end_line: int, replaceme
         new_lines = []
     lines[start_line - 1 : end_line] = new_lines
     _write_lines(path, lines)
+    log_tool_usage(
+        "replace_html_lines",
+        path=_path(path),
+        start_line=start_line,
+        end_line=end_line,
+        replacement_chars=len(replacement),
+        changed=True,
+    )
     return f"Replaced lines {start_line}-{end_line}."
 
 
@@ -46,12 +64,25 @@ def insert_after_line(path: str, line_number: int, content: str) -> str:
     """Insert content after a 1-indexed line number in an HTML file."""
     lines = _read_lines(path)
     if line_number < 0 or line_number > len(lines):
+        log_tool_usage(
+            "insert_html_after_line",
+            path=_path(path),
+            line_number=line_number,
+            changed=False,
+        )
         return f"No insertion made: invalid line {line_number}."
     new_lines = content.splitlines(keepends=True)
     if new_lines and not new_lines[-1].endswith(("\n", "\r")):
         new_lines[-1] = f"{new_lines[-1]}\n"
     lines[line_number:line_number] = new_lines
     _write_lines(path, lines)
+    log_tool_usage(
+        "insert_html_after_line",
+        path=_path(path),
+        line_number=line_number,
+        inserted_chars=len(content),
+        changed=True,
+    )
     return f"Inserted after line {line_number}."
 
 
@@ -64,7 +95,9 @@ def build_html_file_tools() -> list:
     @function_tool
     def read_html_file(path: str) -> str:
         """Read an HTML source file from disk."""
-        return _path(path).read_text(encoding="utf-8")
+        content = _path(path).read_text(encoding="utf-8")
+        log_tool_usage("read_html_file", path=_path(path), chars=len(content))
+        return content
 
     @function_tool
     def search_html_file(path: str, query: str) -> list[str]:
@@ -73,6 +106,7 @@ def build_html_file_tools() -> list:
         for number, line in enumerate(_path(path).read_text(encoding="utf-8").splitlines(), 1):
             if query.lower() in line.lower():
                 matches.append(f"{number}: {line}")
+        log_tool_usage("search_html_file", path=_path(path), query=query, matches=len(matches))
         return matches
 
     @function_tool
@@ -96,6 +130,7 @@ def build_html_file_tools() -> list:
         file_path = _path(path)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")
+        log_tool_usage("write_html_file", path=file_path, chars=len(content), changed=True)
         return "HTML file written."
 
     return [

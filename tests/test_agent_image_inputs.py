@@ -19,12 +19,13 @@ class FakeRunResult:
 
 class RecordingRunner:
     def __init__(self, output):
-        self.output = output
+        self.outputs = output if isinstance(output, list) else [output]
         self.calls = []
 
     async def run(self, agent, input_items, **kwargs):
         self.calls.append((agent, input_items, kwargs))
-        return FakeRunResult(self.output)
+        index = min(len(self.calls) - 1, len(self.outputs) - 1)
+        return FakeRunResult(self.outputs[index])
 
 
 class FakeRuntime:
@@ -129,6 +130,64 @@ class AgentImageInputTests(unittest.TestCase):
             image_items = [item for item in content if item["type"] == "input_image"]
             self.assertEqual(len(image_items), 2)
             self.assertTrue(all(item["image_url"].startswith("data:image/png;base64,") for item in image_items))
+
+        asyncio.run(run_test())
+
+    def test_evaluator_retries_once_when_output_is_not_json(self):
+        async def run_test():
+            with tempfile.TemporaryDirectory() as temp_dir:
+                original_path = Path(temp_dir) / "original.png"
+                generated_path = Path(temp_dir) / "generated.png"
+                original_path.write_bytes(b"original")
+                generated_path.write_bytes(b"generated")
+                runner = RecordingRunner(
+                    [
+                        "The images are quite different.",
+                        """
+                        {
+                          "score": 0.3,
+                          "identical": false,
+                          "critique": "different",
+                          "missing_details": ["layout"],
+                          "revision_instructions": ["rebuild layout"]
+                        }
+                        """,
+                    ]
+                )
+                client = EvaluatorAgentClient(FakeRuntime(runner))
+
+                result = await client.evaluate(
+                    original_image_path=original_path,
+                    generated_image_path=generated_path,
+                )
+
+            self.assertEqual(2, len(runner.calls))
+            self.assertEqual(0.3, result["score"])
+            retry_prompt = runner.calls[1][1][0]["content"][0]["text"]
+            self.assertIn("Previous evaluator output was invalid", retry_prompt)
+
+        asyncio.run(run_test())
+
+    def test_evaluator_returns_fallback_report_when_retry_is_still_not_json(self):
+        async def run_test():
+            with tempfile.TemporaryDirectory() as temp_dir:
+                original_path = Path(temp_dir) / "original.png"
+                generated_path = Path(temp_dir) / "generated.png"
+                original_path.write_bytes(b"original")
+                generated_path.write_bytes(b"generated")
+                runner = RecordingRunner(["not json", "still not json"])
+                client = EvaluatorAgentClient(FakeRuntime(runner))
+
+                result = await client.evaluate(
+                    original_image_path=original_path,
+                    generated_image_path=generated_path,
+                )
+
+            self.assertEqual(2, len(runner.calls))
+            self.assertEqual(0.0, result["score"])
+            self.assertFalse(result["identical"])
+            self.assertIn("valid JSON", result["critique"])
+            self.assertTrue(result["revision_instructions"])
 
         asyncio.run(run_test())
 

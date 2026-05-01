@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import logging
 from pathlib import Path
 
 from app.agents.html_file_tools import (
@@ -7,6 +8,7 @@ from app.agents.html_file_tools import (
     read_html_line_range,
     replace_html_line_range,
 )
+from app.job_logging import job_logging_context
 
 
 class HtmlFileToolTests(unittest.TestCase):
@@ -36,6 +38,22 @@ class HtmlFileToolTests(unittest.TestCase):
 
             self.assertIn("Inserted after line 1", result)
             self.assertEqual("one\nmiddle\ntwo\n", path.read_text(encoding="utf-8"))
+
+    def test_tool_usage_is_logged_when_context_is_active(self):
+        logger = logging.getLogger("test.tool-usage")
+        logger.handlers.clear()
+        logger.propagate = True
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "source.html"
+            path.write_text("one\ntwo\n", encoding="utf-8")
+
+            with self.assertLogs("test.tool-usage", level="INFO") as logs:
+                with job_logging_context(logger):
+                    replace_html_line_range(str(path), 2, 2, "TWO")
+
+        output = "\n".join(logs.output)
+        self.assertIn("TOOL replace_html_lines", output)
+        self.assertIn("changed=True", output)
 
 
 if __name__ == "__main__":

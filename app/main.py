@@ -9,6 +9,8 @@ from app.asyncio_compat import configure_windows_event_loop_policy
 from app.agents.coder_agent import CoderAgentClient
 from app.agents.evaluator_agent import EvaluatorAgentClient
 from app.config_loader import load_agent_profile, load_env_file, load_models, load_thresholds
+from app.job_logging import job_logging_context
+from app.model_validation import validate_image_input_models
 from app.orchestrator import JobOrchestrator, JobRequest, RunSettings
 from app.tools.render_screenshot import PlaywrightScreenshotRenderer
 
@@ -48,9 +50,30 @@ def _logger_for(job_id: str) -> logging.Logger:
 
 def _build_orchestrator(logger: logging.Logger) -> JobOrchestrator:
     models = load_models(PROJECT_ROOT / "app")
+    validate_image_input_models(models, logger)
     thresholds = load_thresholds(PROJECT_ROOT / "app")
     coder_profile = load_agent_profile(PROJECT_ROOT / "app", "coder")
     evaluator_profile = load_agent_profile(PROJECT_ROOT / "app", "evaluator")
+    logger.info(
+        "AGENT coder model=%s skills=%s registry_tools=%s runtime_tools=%s",
+        models["coder"],
+        [str(path) for path in coder_profile.skill_paths],
+        coder_profile.tool_names,
+        [
+            "read_html_file",
+            "search_html_file",
+            "read_html_lines",
+            "replace_html_lines",
+            "insert_html_after_line",
+            "write_html_file",
+        ],
+    )
+    logger.info(
+        "AGENT evaluator model=%s skills=%s registry_tools=%s",
+        models["evaluator"],
+        [str(path) for path in evaluator_profile.skill_paths],
+        evaluator_profile.tool_names,
+    )
 
     return JobOrchestrator(
         workspaces_root=WORKSPACES_ROOT,
@@ -83,13 +106,14 @@ async def create_job(original_image: UploadFile = File(...)) -> dict:
 
     try:
         orchestrator = _build_orchestrator(logger)
-        result = await orchestrator.run(
-            JobRequest(
-                job_id=job_id,
-                image_bytes=await original_image.read(),
-                image_extension=suffix,
+        with job_logging_context(logger):
+            result = await orchestrator.run(
+                JobRequest(
+                    job_id=job_id,
+                    image_bytes=await original_image.read(),
+                    image_extension=suffix,
+                )
             )
-        )
     except Exception as exc:
         logger.exception("Job failed")
         jobs[job_id] = {"status": "failed", "error": str(exc)}
