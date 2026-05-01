@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -44,6 +45,33 @@ def _coerce_scalar(value: str) -> Any:
         return int(value)
     except ValueError:
         return value
+
+
+def _coerce_env_value(value: str) -> str:
+    value = value.strip()
+    if value.startswith("export "):
+        value = value.removeprefix("export ").strip()
+    if (value.startswith('"') and value.endswith('"')) or (
+        value.startswith("'") and value.endswith("'")
+    ):
+        return value[1:-1]
+    return value
+
+
+def load_env_file(project_root: Path, filename: str = ".env") -> None:
+    path = project_root / filename
+    if not path.exists():
+        return
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key:
+            os.environ.setdefault(key, _coerce_env_value(value))
 
 
 def load_yaml_file(path: Path) -> dict[str, Any]:
@@ -129,9 +157,17 @@ def load_agent_profile(project_root: Path, agent_name: str) -> AgentProfile:
 
 def load_models(project_root: Path) -> dict[str, str]:
     config = load_yaml_file(project_root / "config" / "models.yaml")
-    return dict(config.get("models", config))
+    models = dict(config.get("models", config))
+    shared_model = os.getenv("OPENROUTER_MODEL")
+    if shared_model:
+        models["coder"] = shared_model
+        models["evaluator"] = shared_model
+    if os.getenv("OPENROUTER_CODER_MODEL"):
+        models["coder"] = os.environ["OPENROUTER_CODER_MODEL"]
+    if os.getenv("OPENROUTER_EVALUATOR_MODEL"):
+        models["evaluator"] = os.environ["OPENROUTER_EVALUATOR_MODEL"]
+    return models
 
 
 def load_thresholds(project_root: Path) -> dict[str, Any]:
     return load_yaml_file(project_root / "config" / "thresholds.yaml")
-

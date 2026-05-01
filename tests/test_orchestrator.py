@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import logging
 from pathlib import Path
 
 from app.orchestrator import JobOrchestrator, JobRequest, RunSettings
@@ -42,21 +43,52 @@ class FakeEvaluator:
 class FakeRenderer:
     def __init__(self):
         self.sources = []
+        self.output_paths = []
 
     async def render(self, *, source_html, output_path, viewport):
         self.sources.append(source_html)
+        self.output_paths.append(Path(output_path))
         Path(output_path).write_bytes(b"png")
         return Path(output_path)
 
 
 class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_logs_each_workflow_stage(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            logger = logging.getLogger("test.job-progress")
+            logger.handlers.clear()
+            logger.propagate = True
+            orchestrator = JobOrchestrator(
+                workspaces_root=Path(temp_dir),
+                coder=FakeCoder(),
+                evaluator=FakeEvaluator(),
+                renderer=FakeRenderer(),
+                settings=RunSettings(target_score=0.9, max_iterations=3),
+                logger=logger,
+            )
+
+            with self.assertLogs("test.job-progress", level="INFO") as logs:
+                await orchestrator.run(
+                    JobRequest(job_id="job-abc", image_bytes=b"original", image_extension=".png")
+                )
+
+            output = "\n".join(logs.output)
+            self.assertIn("Job job-abc initialized", output)
+            self.assertIn("Iteration 1/3: asking coder agent to generate HTML", output)
+            self.assertIn("Iteration 1/3: rendering HTML screenshot", output)
+            self.assertIn("Iteration 1/3: asking evaluator agent to compare images", output)
+            self.assertIn("Iteration 1/3: score=0.4", output)
+            self.assertIn("Iteration 2/3: target reached", output)
+
     async def test_runs_iterations_until_threshold_and_saves_final_artifacts(self):
         with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
             coder = FakeCoder()
             evaluator = FakeEvaluator()
             renderer = FakeRenderer()
             orchestrator = JobOrchestrator(
-                workspaces_root=Path(temp_dir),
+                workspaces_root=root / "workspaces",
+                screenshots_root=root / "screenshots",
                 coder=coder,
                 evaluator=evaluator,
                 renderer=renderer,
@@ -74,6 +106,13 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result.final_generated_image_path.exists())
             self.assertIsNotNone(coder.calls[1][2])
             self.assertEqual(renderer.sources, ["<html>first</html>", "<html>improved</html>"])
+            self.assertEqual(
+                renderer.output_paths,
+                [
+                    root / "screenshots" / "job-abc" / "iterations" / "001.png",
+                    root / "screenshots" / "job-abc" / "iterations" / "002.png",
+                ],
+            )
 
 
 if __name__ == "__main__":

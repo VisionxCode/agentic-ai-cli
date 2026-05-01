@@ -1,8 +1,9 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from app.config_loader import load_agent_profile
+from app.config_loader import load_agent_profile, load_env_file, load_models
 
 
 class RegistryTests(unittest.TestCase):
@@ -44,6 +45,54 @@ agents:
         self.assertIn("Coder instruction.", profile.instructions)
         self.assertIn("Shared rule.", profile.instructions)
         self.assertIn("Image skill.", profile.instructions)
+
+    def test_env_file_populates_openrouter_settings_without_overriding_environment(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / ".env").write_text(
+                """
+OPENROUTER_API_KEY=from-env-file
+OPENROUTER_MODEL=openai/gpt-5.2-chat
+OPENROUTER_HTTP_REFERER="http://localhost:8000"
+""",
+                encoding="utf-8",
+            )
+
+            with patch.dict(
+                "os.environ",
+                {"OPENROUTER_API_KEY": "already-set"},
+                clear=True,
+            ):
+                load_env_file(root)
+
+                self.assertEqual("already-set", __import__("os").environ["OPENROUTER_API_KEY"])
+                self.assertEqual("openai/gpt-5.2-chat", __import__("os").environ["OPENROUTER_MODEL"])
+                self.assertEqual(
+                    "http://localhost:8000",
+                    __import__("os").environ["OPENROUTER_HTTP_REFERER"],
+                )
+
+    def test_openrouter_model_env_overrides_both_agent_models(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "config").mkdir()
+            (root / "config" / "models.yaml").write_text(
+                """
+models:
+  coder: fallback-coder
+  evaluator: fallback-evaluator
+""",
+                encoding="utf-8",
+            )
+
+            with patch.dict("os.environ", {"OPENROUTER_MODEL": "openrouter/custom-model"}):
+                self.assertEqual(
+                    {
+                        "coder": "openrouter/custom-model",
+                        "evaluator": "openrouter/custom-model",
+                    },
+                    load_models(root),
+                )
 
 
 if __name__ == "__main__":

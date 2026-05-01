@@ -1,11 +1,14 @@
 import asyncio
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.agents.coder_agent import CoderAgentClient
 from app.agents.evaluator_agent import EvaluatorAgentClient
 from app.agents.image_inputs import image_input_from_path
+from app.agents.sdk_common import openrouter_setting
 
 
 class FakeRunResult:
@@ -30,6 +33,10 @@ class FakeRuntime:
 
 
 class AgentImageInputTests(unittest.TestCase):
+    def test_openrouter_setting_strips_surrounding_whitespace(self):
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "  secret-key\n"}, clear=True):
+            self.assertEqual("secret-key", openrouter_setting("OPENROUTER_API_KEY"))
+
     def test_image_input_from_path_builds_data_url_image_payload(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             image_path = Path(temp_dir) / "original.png"

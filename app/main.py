@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 from uuid import uuid4
 
+from app.asyncio_compat import configure_windows_event_loop_policy
 from app.agents.coder_agent import CoderAgentClient
 from app.agents.evaluator_agent import EvaluatorAgentClient
-from app.config_loader import load_agent_profile, load_models, load_thresholds
+from app.config_loader import load_agent_profile, load_env_file, load_models, load_thresholds
 from app.orchestrator import JobOrchestrator, JobRequest, RunSettings
 from app.tools.render_screenshot import PlaywrightScreenshotRenderer
 
@@ -19,7 +21,10 @@ except ModuleNotFoundError as exc:
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 WORKSPACES_ROOT = PROJECT_ROOT / "app" / "workspaces"
+SCREENSHOTS_ROOT = PROJECT_ROOT / "app" / "screenshots"
 LOGS_ROOT = PROJECT_ROOT / "app" / "logs"
+configure_windows_event_loop_policy()
+load_env_file(PROJECT_ROOT)
 
 app = FastAPI(title="Image-to-HTML Agent Workflow")
 jobs: dict[str, dict] = {}
@@ -29,14 +34,19 @@ def _logger_for(job_id: str) -> logging.Logger:
     LOGS_ROOT.mkdir(parents=True, exist_ok=True)
     logger = logging.getLogger(f"job.{job_id}")
     logger.setLevel(logging.INFO)
+    logger.propagate = False
     if not logger.handlers:
+        formatter = logging.Formatter("%(asctime)s %(levelname)s [job:%(name)s] %(message)s")
         handler = logging.FileHandler(LOGS_ROOT / f"{job_id}.log", encoding="utf-8")
-        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        handler.setFormatter(formatter)
         logger.addHandler(handler)
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
     return logger
 
 
-def _build_orchestrator() -> JobOrchestrator:
+def _build_orchestrator(logger: logging.Logger) -> JobOrchestrator:
     models = load_models(PROJECT_ROOT / "app")
     thresholds = load_thresholds(PROJECT_ROOT / "app")
     coder_profile = load_agent_profile(PROJECT_ROOT / "app", "coder")
@@ -44,6 +54,7 @@ def _build_orchestrator() -> JobOrchestrator:
 
     return JobOrchestrator(
         workspaces_root=WORKSPACES_ROOT,
+        screenshots_root=SCREENSHOTS_ROOT,
         coder=CoderAgentClient.from_config(
             instructions=coder_profile.instructions,
             model_name=models["coder"],
@@ -58,6 +69,7 @@ def _build_orchestrator() -> JobOrchestrator:
             max_iterations=int(thresholds.get("max_iterations", 5)),
             viewport=dict(thresholds.get("viewport", {"width": 1440, "height": 900})),
         ),
+        logger=logger,
     )
 
 
@@ -70,7 +82,7 @@ async def create_job(original_image: UploadFile = File(...)) -> dict:
     logger.info("Starting job")
 
     try:
-        orchestrator = _build_orchestrator()
+        orchestrator = _build_orchestrator(logger)
         result = await orchestrator.run(
             JobRequest(
                 job_id=job_id,
@@ -151,4 +163,3 @@ async def get_iteration_artifact(job_id: str, number: int, artifact: str) -> Fil
     if not path.exists():
         raise HTTPException(status_code=404, detail="Artifact not found")
     return FileResponse(path)
-
