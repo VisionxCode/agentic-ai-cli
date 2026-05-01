@@ -1,0 +1,21 @@
+agents:
+  coder:
+    instructions:
+      - instructions/coder_system.md
+      - instructions/shared_rules.md
+    skills:
+      - skills/image_to_html/SKILL.md
+      - skills/css_layout/SKILL.md
+      - skills/svg_generation/SKILL.md
+    tools:
+      - file_ops
+      - render_screenshot
+  evaluator:
+    instructions:
+      - instructions/evaluator_system.md
+      - instructions/shared_rules.md
+    skills:
+      - skills/visual_matching/SKILL.md
+    tools:
+      - score_parser
+

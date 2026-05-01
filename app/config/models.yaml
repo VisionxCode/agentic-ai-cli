@@ -1,0 +1,4 @@
+models:
+  coder: openai/gpt-5.2-chat
+  evaluator: openai/gpt-5.2-chat
+

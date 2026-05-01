@@ -1,0 +1,7 @@
+{
+  "name": "filesystem",
+  "description": "Filesystem MCP server configuration placeholder for controlled job workspace access.",
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-filesystem", "app/workspaces"]
+}
+

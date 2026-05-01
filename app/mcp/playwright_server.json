@@ -1,0 +1,7 @@
+{
+  "name": "playwright",
+  "description": "Playwright MCP server configuration placeholder for browser automation.",
+  "command": "npx",
+  "args": ["-y", "@playwright/mcp"]
+}
+

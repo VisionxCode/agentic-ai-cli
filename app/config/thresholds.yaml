@@ -1,0 +1,6 @@
+target_score: 0.95
+max_iterations: 5
+viewport:
+  width: 1440
+  height: 900
+

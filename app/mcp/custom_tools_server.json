@@ -1,0 +1,6 @@
+{
+  "name": "custom-tools",
+  "description": "Reserved config for project-specific deterministic tools exposed through MCP.",
+  "command": "uv",
+  "args": ["run", "python", "-m", "app.mcp.custom_tools_server"]
+}
