@@ -20,7 +20,19 @@ def openrouter_setting(name: str, default: str | None = None) -> str | None:
     return value.strip()
 
 
-def build_openrouter_agent(*, name: str, instructions: str, model_name: str) -> AgentRuntime:
+def agent_max_turns(default: int = 30) -> int:
+    value = openrouter_setting("OPENROUTER_AGENT_MAX_TURNS")
+    if not value:
+        return default
+    try:
+        return max(1, int(value))
+    except ValueError:
+        return default
+
+
+def build_openrouter_agent(
+    *, name: str, instructions: str, model_name: str, tools: list[Any] | None = None
+) -> AgentRuntime:
     try:
         from agents import Agent, AsyncOpenAI, OpenAIChatCompletionsModel, Runner, set_tracing_disabled
     except ModuleNotFoundError as exc:
@@ -41,6 +53,6 @@ def build_openrouter_agent(*, name: str, instructions: str, model_name: str) -> 
     )
     model = OpenAIChatCompletionsModel(model=model_name, openai_client=client)
     return AgentRuntime(
-        agent=Agent(name=name, instructions=instructions, model=model),
+        agent=Agent(name=name, instructions=instructions, model=model, tools=tools or []),
         runner=Runner,
     )

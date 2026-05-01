@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import tempfile
 import unittest
@@ -21,8 +22,8 @@ class RecordingRunner:
         self.output = output
         self.calls = []
 
-    async def run(self, agent, input_items):
-        self.calls.append((agent, input_items))
+    async def run(self, agent, input_items, **kwargs):
+        self.calls.append((agent, input_items, kwargs))
         return FakeRunResult(self.output)
 
 
@@ -58,6 +59,7 @@ class AgentImageInputTests(unittest.TestCase):
 
                 await client.generate_html(
                     original_image_path=image_path,
+                    source_path=Path(temp_dir) / "source.html",
                     current_source=None,
                     previous_evaluation=None,
                 )
@@ -68,6 +70,33 @@ class AgentImageInputTests(unittest.TestCase):
             self.assertEqual(content[0]["type"], "input_text")
             self.assertEqual(content[1]["type"], "input_image")
             self.assertTrue(content[1]["image_url"].startswith("data:image/png;base64,"))
+
+        asyncio.run(run_test())
+
+    def test_coder_prompts_for_editing_existing_source_file(self):
+        async def run_test():
+            with tempfile.TemporaryDirectory() as temp_dir:
+                source_path = Path(temp_dir) / "source.html"
+                source_path.write_text("<html>old</html>", encoding="utf-8")
+                image_path = Path(temp_dir) / "original.png"
+                image_path.write_bytes(b"png bytes")
+                runner = RecordingRunner("UPDATED_SOURCE_READY")
+                client = CoderAgentClient(FakeRuntime(runner))
+
+                result = await client.generate_html(
+                    original_image_path=image_path,
+                    source_path=source_path,
+                    current_source="<html>old</html>",
+                    previous_evaluation={"revision_instructions": ["make title bigger"]},
+                )
+
+            prompt = runner.calls[0][1][0]["content"][0]["text"]
+            prompt_data = json.loads(prompt)
+            self.assertEqual("<html>old</html>", result)
+            self.assertEqual(str(source_path), prompt_data["source_path"])
+            self.assertIn("read/search line ranges", str(prompt))
+            self.assertIn("replace_html_lines", str(prompt))
+            self.assertIn("Do not recreate the document from scratch", str(prompt))
 
         asyncio.run(run_test())
 
@@ -100,6 +129,27 @@ class AgentImageInputTests(unittest.TestCase):
             image_items = [item for item in content if item["type"] == "input_image"]
             self.assertEqual(len(image_items), 2)
             self.assertTrue(all(item["image_url"].startswith("data:image/png;base64,") for item in image_items))
+
+        asyncio.run(run_test())
+
+    def test_coder_uses_configurable_agent_max_turns(self):
+        async def run_test():
+            with tempfile.TemporaryDirectory() as temp_dir:
+                image_path = Path(temp_dir) / "original.png"
+                image_path.write_bytes(b"png bytes")
+                source_path = Path(temp_dir) / "source.html"
+                runner = RecordingRunner("<html></html>")
+                client = CoderAgentClient(FakeRuntime(runner))
+
+                with patch.dict(os.environ, {"OPENROUTER_AGENT_MAX_TURNS": "42"}):
+                    await client.generate_html(
+                        original_image_path=image_path,
+                        source_path=source_path,
+                        current_source=None,
+                        previous_evaluation=None,
+                    )
+
+            self.assertEqual(42, runner.calls[0][2]["max_turns"])
 
         asyncio.run(run_test())
 

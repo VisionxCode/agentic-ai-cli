@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.agents.image_inputs import image_input_from_path, text_input, user_message_with_content
-from app.agents.sdk_common import AgentRuntime, build_openrouter_agent
+from app.agents.sdk_common import AgentRuntime, agent_max_turns, build_openrouter_agent
 from app.tools.score_parser import parse_evaluation
 
 
@@ -39,5 +39,9 @@ class EvaluatorAgentClient:
                 image_input_from_path(generated_image_path, detail="high"),
             ]
         )
-        result = await self.runtime.runner.run(self.runtime.agent, input_items)
+        result = await self.runtime.runner.run(
+            self.runtime.agent,
+            input_items,
+            max_turns=agent_max_turns(),
+        )
         return parse_evaluation(str(result.final_output))

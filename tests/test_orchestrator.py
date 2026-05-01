@@ -7,14 +7,20 @@ from app.orchestrator import JobOrchestrator, JobRequest, RunSettings
 
 
 class FakeCoder:
-    def __init__(self):
+    def __init__(self, change_on_revision=True):
         self.calls = []
+        self.change_on_revision = change_on_revision
 
-    async def generate_html(self, *, original_image_path, current_source, previous_evaluation):
-        self.calls.append((original_image_path, current_source, previous_evaluation))
+    async def generate_html(
+        self, *, original_image_path, source_path, current_source, previous_evaluation
+    ):
+        self.calls.append((original_image_path, source_path, current_source, previous_evaluation))
         if previous_evaluation:
-            return "<html>improved</html>"
-        return "<html>first</html>"
+            if self.change_on_revision:
+                source_path.write_text("<html>improved</html>", encoding="utf-8")
+            return source_path.read_text(encoding="utf-8")
+        source_path.write_text("<html>first</html>", encoding="utf-8")
+        return source_path.read_text(encoding="utf-8")
 
 
 class FakeEvaluator:
@@ -74,7 +80,7 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
 
             output = "\n".join(logs.output)
             self.assertIn("Job job-abc initialized", output)
-            self.assertIn("Iteration 1/3: asking coder agent to generate HTML", output)
+            self.assertIn("Iteration 1/3: asking coder agent to generate/edit HTML", output)
             self.assertIn("Iteration 1/3: rendering HTML screenshot", output)
             self.assertIn("Iteration 1/3: asking evaluator agent to compare images", output)
             self.assertIn("Iteration 1/3: score=0.4", output)
@@ -104,7 +110,12 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.iterations, 2)
             self.assertTrue(result.final_source_path.exists())
             self.assertTrue(result.final_generated_image_path.exists())
-            self.assertIsNotNone(coder.calls[1][2])
+            self.assertEqual(
+                root / "workspaces" / "job-abc" / "working" / "source.html",
+                coder.calls[0][1],
+            )
+            self.assertEqual(coder.calls[0][1], coder.calls[1][1])
+            self.assertIsNotNone(coder.calls[1][3])
             self.assertEqual(renderer.sources, ["<html>first</html>", "<html>improved</html>"])
             self.assertEqual(
                 renderer.output_paths,
@@ -113,6 +124,27 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
                     root / "screenshots" / "job-abc" / "iterations" / "002.png",
                 ],
             )
+
+    async def test_logs_warning_when_revision_does_not_change_source(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            logger = logging.getLogger("test.no-change")
+            logger.handlers.clear()
+            logger.propagate = True
+            orchestrator = JobOrchestrator(
+                workspaces_root=Path(temp_dir),
+                coder=FakeCoder(change_on_revision=False),
+                evaluator=FakeEvaluator(),
+                renderer=FakeRenderer(),
+                settings=RunSettings(target_score=0.9, max_iterations=3),
+                logger=logger,
+            )
+
+            with self.assertLogs("test.no-change", level="WARNING") as logs:
+                await orchestrator.run(
+                    JobRequest(job_id="job-abc", image_bytes=b"original", image_extension=".png")
+                )
+
+            self.assertIn("coder did not change working source", "\n".join(logs.output))
 
 
 if __name__ == "__main__":

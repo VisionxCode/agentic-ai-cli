@@ -13,6 +13,7 @@ class Coder(Protocol):
         self,
         *,
         original_image_path: Path,
+        source_path: Path,
         current_source: str | None,
         previous_evaluation: dict[str, Any] | None,
     ) -> str: ...
@@ -91,15 +92,20 @@ class JobOrchestrator:
         current_source: str | None = None
         previous_evaluation: dict[str, Any] | None = None
         last_screenshot: Path | None = None
+        source_path = workspace.root / "working" / "source.html"
+        source_path.parent.mkdir(parents=True, exist_ok=True)
 
         for iteration in range(1, self.settings.max_iterations + 1):
+            source_before = source_path.read_text(encoding="utf-8") if source_path.exists() else None
             self.logger.info(
-                "Iteration %s/%s: asking coder agent to generate HTML",
+                "Iteration %s/%s: asking coder agent to generate/edit HTML at %s",
                 iteration,
                 self.settings.max_iterations,
+                source_path,
             )
             current_source = await self.coder.generate_html(
                 original_image_path=original_path,
+                source_path=source_path,
                 current_source=current_source,
                 previous_evaluation=previous_evaluation,
             )
@@ -109,6 +115,12 @@ class JobOrchestrator:
                 self.settings.max_iterations,
                 len(current_source),
             )
+            if previous_evaluation is not None and source_before == current_source:
+                self.logger.warning(
+                    "Iteration %s/%s: coder did not change working source; evaluation may repeat",
+                    iteration,
+                    self.settings.max_iterations,
+                )
             screenshot_path = (
                 self.screenshots_root / request.job_id / "iterations" / f"{iteration:03d}.png"
             )
