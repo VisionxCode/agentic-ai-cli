@@ -69,7 +69,14 @@ def _build_orchestrator(logger: logging.Logger) -> JobOrchestrator:
             "list_source_files",
             "read_text_file",
             "write_text_file",
+            "list_skill_files",
+            "read_skill_file",
+            "MiniMax MCP tools when MINIMAX_API_KEY is set",
         ],
+    )
+    logger.info(
+        "AGENT coder mcp_configs=%s",
+        [str(path) for path in coder_profile.mcp_config_paths],
     )
     logger.info(
         "AGENT evaluator model=%s skills=%s registry_tools=%s",
@@ -84,6 +91,7 @@ def _build_orchestrator(logger: logging.Logger) -> JobOrchestrator:
         coder=CoderAgentClient.from_config(
             instructions=coder_profile.instructions,
             model_name=models["coder"],
+            mcp_config_paths=coder_profile.mcp_config_paths,
         ),
         evaluator=EvaluatorAgentClient.from_config(
             instructions=evaluator_profile.instructions,

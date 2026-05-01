@@ -7,9 +7,14 @@ agents:
       - skills/image_to_html/SKILL.md
       - skills/css_layout/SKILL.md
       - skills/svg_generation/SKILL.md
+      - skills/huashu_design/SKILL.md
     tools:
       - file_ops
       - render_screenshot
+      - skill_files
+      - minimax_mcp
+    mcp_servers:
+      - mcp/minimax_server.json
   evaluator:
     instructions:
       - instructions/evaluator_system.md
@@ -18,4 +23,3 @@ agents:
       - skills/visual_matching/SKILL.md
     tools:
       - score_parser
-

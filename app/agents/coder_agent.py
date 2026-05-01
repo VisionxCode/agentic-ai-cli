@@ -6,6 +6,11 @@ from typing import Any
 from app.agents.html_file_tools import build_html_file_tools
 from app.agents.image_inputs import image_input_from_path, text_input, user_message_with_content
 from app.agents.sdk_common import AgentRuntime, agent_max_turns, build_openrouter_agent
+from app.agents.skill_file_tools import build_skill_file_tools
+from app.mcp_loader import load_mcp_stdio_servers
+
+
+APP_ROOT = Path(__file__).resolve().parents[1]
 
 
 class CoderAgentClient:
@@ -13,13 +18,24 @@ class CoderAgentClient:
         self.runtime = runtime
 
     @classmethod
-    def from_config(cls, *, instructions: str, model_name: str) -> "CoderAgentClient":
+    def from_config(
+        cls,
+        *,
+        instructions: str,
+        model_name: str,
+        mcp_config_paths: list[Path] | None = None,
+    ) -> "CoderAgentClient":
+        tools = [
+            *build_html_file_tools(),
+            *build_skill_file_tools(APP_ROOT / "skills"),
+        ]
         return cls(
             build_openrouter_agent(
                 name="coder",
                 instructions=instructions,
                 model_name=model_name,
-                tools=build_html_file_tools(),
+                tools=tools,
+                mcp_servers=load_mcp_stdio_servers(mcp_config_paths or []),
             )
         )
 
@@ -37,6 +53,20 @@ class CoderAgentClient:
             "task": "Generate or revise a multi-file HTML/CSS/JavaScript app matching the original image.",
             "source_path": str(source_path),
             "source_root": str(source_root),
+            "skill_context": {
+                "available_tools": [
+                    "list_skill_files(skill_name, relative_dir='.')",
+                    "read_skill_file(skill_name, relative_path, max_chars=30000)",
+                ],
+                "huashu_skill_name": "huashu_design",
+                "huashu_main_skill": "assets/source/SKILL.md",
+                "huashu_references_dir": "assets/source/references",
+                "huashu_assets_dir": "assets/source/assets",
+                "web_search": (
+                    "When MiniMax MCP tools are available, use them for current product facts, "
+                    "official brand assets, logos, screenshots, release/spec checks, and source URLs."
+                ),
+            },
             "workflow": (
                 "If this is the first iteration, create source_path as the entry HTML file and create "
                 "any supporting CSS or JavaScript files in source_root, for example styles.css and app.js. "
@@ -69,11 +99,19 @@ class CoderAgentClient:
                 image_input_from_path(original_image_path, detail="high"),
             ]
         )
-        result = await self.runtime.runner.run(
-            self.runtime.agent,
-            input_items,
-            max_turns=agent_max_turns(),
-        )
+        connect_mcp_servers = getattr(self.runtime, "connect_mcp_servers", None)
+        if connect_mcp_servers is not None:
+            await connect_mcp_servers()
+        try:
+            result = await self.runtime.runner.run(
+                self.runtime.agent,
+                input_items,
+                max_turns=agent_max_turns(),
+            )
+        finally:
+            cleanup_mcp_servers = getattr(self.runtime, "cleanup_mcp_servers", None)
+            if cleanup_mcp_servers is not None:
+                await cleanup_mcp_servers()
         output = str(result.final_output).strip()
         if output.lower().startswith("<!doctype") or output.lower().startswith("<html"):
             source_path.parent.mkdir(parents=True, exist_ok=True)

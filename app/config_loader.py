@@ -12,6 +12,7 @@ class AgentProfile:
     instructions: str
     tool_names: list[str]
     skill_paths: list[Path]
+    mcp_config_paths: list[Path]
 
 
 def _strip_yaml_comments(line: str) -> str:
@@ -145,6 +146,7 @@ def load_agent_profile(project_root: Path, agent_name: str) -> AgentProfile:
 
     instruction_paths = [project_root / item for item in config.get("instructions", [])]
     skill_paths = [project_root / item for item in config.get("skills", [])]
+    mcp_config_paths = [project_root / item for item in config.get("mcp_servers", [])]
     instructions = _read_joined(instruction_paths + skill_paths)
 
     return AgentProfile(
@@ -152,6 +154,7 @@ def load_agent_profile(project_root: Path, agent_name: str) -> AgentProfile:
         instructions=instructions,
         tool_names=list(config.get("tools", [])),
         skill_paths=skill_paths,
+        mcp_config_paths=mcp_config_paths,
     )
 
 

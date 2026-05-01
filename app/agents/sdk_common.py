@@ -11,6 +11,17 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 class AgentRuntime:
     agent: Any
     runner: Any
+    mcp_servers: list[Any]
+
+    async def connect_mcp_servers(self) -> None:
+        for server in self.mcp_servers:
+            if getattr(server, "session", None) is None:
+                await server.connect()
+
+    async def cleanup_mcp_servers(self) -> None:
+        for server in self.mcp_servers:
+            if getattr(server, "session", None) is not None:
+                await server.cleanup()
 
 
 def openrouter_setting(name: str, default: str | None = None) -> str | None:
@@ -31,7 +42,12 @@ def agent_max_turns(default: int = 30) -> int:
 
 
 def build_openrouter_agent(
-    *, name: str, instructions: str, model_name: str, tools: list[Any] | None = None
+    *,
+    name: str,
+    instructions: str,
+    model_name: str,
+    tools: list[Any] | None = None,
+    mcp_servers: list[Any] | None = None,
 ) -> AgentRuntime:
     try:
         from agents import Agent, AsyncOpenAI, OpenAIChatCompletionsModel, Runner, set_tracing_disabled
@@ -52,7 +68,15 @@ def build_openrouter_agent(
         },
     )
     model = OpenAIChatCompletionsModel(model=model_name, openai_client=client)
+    resolved_mcp_servers = mcp_servers or []
     return AgentRuntime(
-        agent=Agent(name=name, instructions=instructions, model=model, tools=tools or []),
+        agent=Agent(
+            name=name,
+            instructions=instructions,
+            model=model,
+            tools=tools or [],
+            mcp_servers=resolved_mcp_servers,
+        ),
         runner=Runner,
+        mcp_servers=resolved_mcp_servers,
     )

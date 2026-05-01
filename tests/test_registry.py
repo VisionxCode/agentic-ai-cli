@@ -46,6 +46,12 @@ agents:
         self.assertIn("Shared rule.", profile.instructions)
         self.assertIn("Image skill.", profile.instructions)
 
+    def test_project_coder_profile_includes_huashu_design_skill(self):
+        profile = load_agent_profile(Path("app"), "coder")
+
+        self.assertIn(Path("app/skills/huashu_design/SKILL.md"), profile.skill_paths)
+        self.assertIn("Huashu Design", profile.instructions)
+
     def test_env_file_populates_openrouter_settings_without_overriding_environment(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
