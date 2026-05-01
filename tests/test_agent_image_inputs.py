@@ -109,8 +109,9 @@ class AgentImageInputTests(unittest.TestCase):
             prompt = runner.calls[0][1][0]["content"][0]["text"]
             prompt_data = json.loads(prompt)
             self.assertEqual("<html>old</html>", result)
-            self.assertEqual(str(source_path), prompt_data["source_path"])
-            self.assertEqual(str(source_path.parent), prompt_data["source_root"])
+            self.assertEqual("index.html", prompt_data["source_path"])
+            self.assertEqual(".", prompt_data["source_root"])
+            self.assertIn("Use only relative paths", prompt_data["workspace_boundary"])
             self.assertIn("list_source_files", str(prompt))
             self.assertIn("read_text_file", str(prompt))
             self.assertIn("replace_html_lines", str(prompt))

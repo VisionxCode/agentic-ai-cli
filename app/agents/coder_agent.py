@@ -28,8 +28,18 @@ CODER_TOOL_NAMES = [
 
 
 class CoderAgentClient:
-    def __init__(self, runtime: AgentRuntime) -> None:
+    def __init__(
+        self,
+        runtime: AgentRuntime | None = None,
+        *,
+        instructions: str | None = None,
+        model_name: str | None = None,
+        mcp_config_paths: list[Path] | None = None,
+    ) -> None:
         self.runtime = runtime
+        self.instructions = instructions
+        self.model_name = model_name
+        self.mcp_config_paths = mcp_config_paths or []
 
     @classmethod
     def from_config(
@@ -39,18 +49,10 @@ class CoderAgentClient:
         model_name: str,
         mcp_config_paths: list[Path] | None = None,
     ) -> "CoderAgentClient":
-        tools = [
-            *build_html_file_tools(),
-            *build_skill_file_tools(APP_ROOT / "skills"),
-        ]
         return cls(
-            build_openrouter_agent(
-                name="coder",
-                instructions=instructions,
-                model_name=model_name,
-                tools=tools,
-                mcp_servers=load_mcp_stdio_servers(mcp_config_paths or []),
-            )
+            instructions=instructions,
+            model_name=model_name,
+            mcp_config_paths=mcp_config_paths or [],
         )
 
     async def generate_html(
@@ -63,10 +65,15 @@ class CoderAgentClient:
     ) -> str:
         source_exists = source_path.exists()
         source_root = source_path.parent
+        runtime = self._runtime_for_source_root(source_root)
         prompt = {
             "task": "Generate or revise a multi-file HTML/CSS/JavaScript app matching the original image.",
-            "source_path": str(source_path),
-            "source_root": str(source_root),
+            "source_path": "index.html",
+            "source_root": ".",
+            "workspace_boundary": (
+                "The file tools are scoped to this job's source folder. Use only relative paths "
+                "such as index.html, styles.css, and app.js. Do not use absolute paths."
+            ),
             "skill_context": {
                 "available_tools": [
                     "list_skill_files(skill_name, relative_dir='.')",
@@ -114,16 +121,17 @@ class CoderAgentClient:
                 image_input_from_path(original_image_path, detail="high"),
             ]
         )
-        connect_mcp_servers = getattr(self.runtime, "connect_mcp_servers", None)
+        connect_mcp_servers = getattr(runtime, "connect_mcp_servers", None)
         if connect_mcp_servers is not None:
             await connect_mcp_servers()
         try:
             result = await self._run_with_tool_error_retry(
+                runtime=runtime,
                 input_items=input_items,
                 original_prompt=prompt,
             )
         finally:
-            cleanup_mcp_servers = getattr(self.runtime, "cleanup_mcp_servers", None)
+            cleanup_mcp_servers = getattr(runtime, "cleanup_mcp_servers", None)
             if cleanup_mcp_servers is not None:
                 await cleanup_mcp_servers()
         output = str(result.final_output).strip()
@@ -135,11 +143,15 @@ class CoderAgentClient:
         return output
 
     async def _run_with_tool_error_retry(
-        self, *, input_items: list[dict[str, Any]], original_prompt: dict[str, Any]
+        self,
+        *,
+        runtime: AgentRuntime,
+        input_items: list[dict[str, Any]],
+        original_prompt: dict[str, Any],
     ):
         try:
-            return await self.runtime.runner.run(
-                self.runtime.agent,
+            return await runtime.runner.run(
+                runtime.agent,
                 input_items,
                 max_turns=agent_max_turns(),
             )
@@ -147,11 +159,28 @@ class CoderAgentClient:
             if not _is_model_behavior_error(exc):
                 raise
             retry_prompt = _tool_error_retry_prompt(original_prompt, exc)
-            return await self.runtime.runner.run(
-                self.runtime.agent,
+            return await runtime.runner.run(
+                runtime.agent,
                 user_message_with_content([text_input(retry_prompt)]),
                 max_turns=agent_max_turns(),
             )
+
+    def _runtime_for_source_root(self, source_root: Path) -> AgentRuntime:
+        if self.runtime is not None:
+            return self.runtime
+        if self.instructions is None or self.model_name is None:
+            raise RuntimeError("CoderAgentClient requires a runtime or model configuration.")
+        tools = [
+            *build_html_file_tools(source_root=source_root),
+            *build_skill_file_tools(APP_ROOT / "skills"),
+        ]
+        return build_openrouter_agent(
+            name="coder",
+            instructions=self.instructions,
+            model_name=self.model_name,
+            tools=tools,
+            mcp_servers=load_mcp_stdio_servers(self.mcp_config_paths),
+        )
 
 
 def _is_model_behavior_error(exc: Exception) -> bool:
