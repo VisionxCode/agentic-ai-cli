@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from app.workspace import JobWorkspace
+from app.workspace import IterationArtifacts, JobWorkspace
 
 
 class Coder(Protocol):
@@ -92,6 +92,9 @@ class JobOrchestrator:
         current_source: str | None = None
         previous_evaluation: dict[str, Any] | None = None
         last_screenshot: Path | None = None
+        best_iteration: IterationArtifacts | None = None
+        best_evaluation: dict[str, Any] | None = None
+        best_score = float("-inf")
         source_root = workspace.root / "working" / "src"
         source_path = source_root / "index.html"
         source_path.parent.mkdir(parents=True, exist_ok=True)
@@ -146,7 +149,7 @@ class JobOrchestrator:
                 original_image_path=original_path,
                 generated_image_path=last_screenshot,
             )
-            workspace.save_iteration(
+            iteration_artifacts = workspace.save_iteration(
                 number=iteration,
                 source_html=current_source,
                 source_root=source_root,
@@ -155,6 +158,10 @@ class JobOrchestrator:
             )
             previous_evaluation = evaluation
             score = float(evaluation.get("score", 0.0))
+            if score > best_score:
+                best_iteration = iteration_artifacts
+                best_evaluation = evaluation
+                best_score = score
             self.logger.info(
                 "Iteration %s/%s: score=%s identical=%s critique=%s",
                 iteration,
@@ -165,49 +172,43 @@ class JobOrchestrator:
             )
             if score >= self.settings.target_score or bool(evaluation.get("identical")):
                 self.logger.info(
-                    "Iteration %s/%s: target reached, saving final artifacts",
+                    "Iteration %s/%s: target reached, saving best-scoring final artifacts",
                     iteration,
                     self.settings.max_iterations,
                 )
-                final = workspace.save_final(
-                    source_html=current_source,
-                    source_root=source_root,
-                    generated_image=last_screenshot,
-                    report=evaluation,
-                )
+                assert best_iteration is not None
+                assert best_evaluation is not None
+                final = workspace.save_final_from_iteration(best_iteration, best_evaluation)
                 return JobResult(
                     job_id=request.job_id,
                     status="completed",
-                    final_score=score,
+                    final_score=best_score,
                     iterations=iteration,
                     final_source_path=final.source,
                     final_generated_image_path=final.generated_image,
                     final_report_path=final.report,
-                    report=evaluation,
+                    report=best_evaluation,
                 )
 
         assert current_source is not None
         assert previous_evaluation is not None
         assert last_screenshot is not None
+        assert best_iteration is not None
+        assert best_evaluation is not None
         self.logger.info(
-            "Max iterations reached; saving final artifacts with score=%s",
-            previous_evaluation.get("score", 0.0),
+            "Max iterations reached; saving best-scoring final artifacts with score=%s",
+            best_score,
         )
-        final = workspace.save_final(
-            source_html=current_source,
-            source_root=source_root,
-            generated_image=last_screenshot,
-            report=previous_evaluation,
-        )
+        final = workspace.save_final_from_iteration(best_iteration, best_evaluation)
         return JobResult(
             job_id=request.job_id,
             status="max_iterations_reached",
-            final_score=float(previous_evaluation.get("score", 0.0)),
+            final_score=best_score,
             iterations=self.settings.max_iterations,
             final_source_path=final.source,
             final_generated_image_path=final.generated_image,
             final_report_path=final.report,
-            report=previous_evaluation,
+            report=best_evaluation,
         )
 
 

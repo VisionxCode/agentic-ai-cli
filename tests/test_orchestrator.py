@@ -48,6 +48,39 @@ class FakeEvaluator:
         }
 
 
+class ScoredEvaluator:
+    def __init__(self, scores):
+        self.scores = scores
+        self.calls = 0
+
+    async def evaluate(self, *, original_image_path, generated_image_path):
+        score = self.scores[self.calls]
+        self.calls += 1
+        return {
+            "score": score,
+            "identical": False,
+            "critique": f"score {score}",
+            "missing_details": [],
+            "revision_instructions": ["keep improving"],
+        }
+
+
+class VersionedCoder:
+    def __init__(self):
+        self.calls = 0
+
+    async def generate_html(
+        self, *, original_image_path, source_path, current_source, previous_evaluation
+    ):
+        self.calls += 1
+        source_path.write_text(f"<html>version {self.calls}</html>", encoding="utf-8")
+        (source_path.parent / "styles.css").write_text(
+            f"body {{ --version: {self.calls}; }}",
+            encoding="utf-8",
+        )
+        return source_path.read_text(encoding="utf-8")
+
+
 class FakeRenderer:
     def __init__(self):
         self.sources = []
@@ -153,6 +186,43 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
                 )
 
             self.assertIn("coder did not change working source", "\n".join(logs.output))
+
+    async def test_final_artifacts_use_highest_scoring_iteration_not_latest(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            orchestrator = JobOrchestrator(
+                workspaces_root=root / "workspaces",
+                screenshots_root=root / "screenshots",
+                coder=VersionedCoder(),
+                evaluator=ScoredEvaluator([0.82, 0.51, 0.74]),
+                renderer=FakeRenderer(),
+                settings=RunSettings(target_score=0.95, max_iterations=3),
+            )
+
+            result = await orchestrator.run(
+                JobRequest(job_id="job-best", image_bytes=b"original", image_extension=".png")
+            )
+
+            workspace = root / "workspaces" / "job-best"
+            self.assertEqual("max_iterations_reached", result.status)
+            self.assertEqual(0.82, result.final_score)
+            self.assertEqual("<html>version 1</html>", result.final_source_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                "body { --version: 1; }",
+                (workspace / "final" / "src" / "styles.css").read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                "<html>version 1</html>",
+                (workspace / "iterations" / "001" / "src" / "index.html").read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                "<html>version 2</html>",
+                (workspace / "iterations" / "002" / "src" / "index.html").read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                "<html>version 3</html>",
+                (workspace / "iterations" / "003" / "src" / "index.html").read_text(encoding="utf-8"),
+            )
 
 
 if __name__ == "__main__":

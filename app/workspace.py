@@ -105,6 +105,17 @@ class JobWorkspace:
             report=report_path,
         )
 
+    def save_final_from_iteration(
+        self, iteration: IterationArtifacts, report: dict[str, Any]
+    ) -> FinalArtifacts:
+        source_html = iteration.source.read_text(encoding="utf-8")
+        return self.save_final(
+            source_html=source_html,
+            source_root=iteration.source_root,
+            generated_image=iteration.generated_image,
+            report=report,
+        )
+
     @staticmethod
     def _copy_source_root(source_root: Path | None, destination: Path, source_html: str) -> None:
         if destination.exists():
