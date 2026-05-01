@@ -41,6 +41,60 @@ def agent_max_turns(default: int = 30) -> int:
         return default
 
 
+def openrouter_provider_extra_body() -> dict[str, Any] | None:
+    provider: dict[str, Any] = {}
+    for key, env_name in {
+        "order": "OPENROUTER_PROVIDER_ORDER",
+        "only": "OPENROUTER_PROVIDER_ONLY",
+        "ignore": "OPENROUTER_PROVIDER_IGNORE",
+        "quantizations": "OPENROUTER_PROVIDER_QUANTIZATIONS",
+    }.items():
+        values = _csv_setting(env_name)
+        if values:
+            provider[key] = values
+
+    for key, env_name in {
+        "allow_fallbacks": "OPENROUTER_PROVIDER_ALLOW_FALLBACKS",
+        "require_parameters": "OPENROUTER_PROVIDER_REQUIRE_PARAMETERS",
+        "zdr": "OPENROUTER_PROVIDER_ZDR",
+        "enforce_distillable_text": "OPENROUTER_PROVIDER_ENFORCE_DISTILLABLE_TEXT",
+    }.items():
+        value = _bool_setting(env_name)
+        if value is not None:
+            provider[key] = value
+
+    data_collection = openrouter_setting("OPENROUTER_PROVIDER_DATA_COLLECTION")
+    if data_collection:
+        provider["data_collection"] = data_collection
+
+    sort = openrouter_setting("OPENROUTER_PROVIDER_SORT")
+    if sort:
+        provider["sort"] = sort
+
+    if not provider:
+        return None
+    return {"provider": provider}
+
+
+def _csv_setting(name: str) -> list[str]:
+    value = openrouter_setting(name)
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _bool_setting(name: str) -> bool | None:
+    value = openrouter_setting(name)
+    if not value:
+        return None
+    normalized = value.lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be true or false when set")
+
+
 def build_openrouter_agent(
     *,
     name: str,
@@ -50,7 +104,7 @@ def build_openrouter_agent(
     mcp_servers: list[Any] | None = None,
 ) -> AgentRuntime:
     try:
-        from agents import Agent, AsyncOpenAI, OpenAIChatCompletionsModel, Runner, set_tracing_disabled
+        from agents import Agent, AsyncOpenAI, ModelSettings, OpenAIChatCompletionsModel, Runner, set_tracing_disabled
     except ModuleNotFoundError as exc:
         raise RuntimeError("Install the OpenAI Agents SDK package: openai-agents") from exc
 
@@ -68,12 +122,17 @@ def build_openrouter_agent(
         },
     )
     model = OpenAIChatCompletionsModel(model=model_name, openai_client=client)
+    provider_extra_body = openrouter_provider_extra_body()
+    model_settings = (
+        ModelSettings(extra_body=provider_extra_body) if provider_extra_body else ModelSettings()
+    )
     resolved_mcp_servers = mcp_servers or []
     return AgentRuntime(
         agent=Agent(
             name=name,
             instructions=instructions,
             model=model,
+            model_settings=model_settings,
             tools=tools or [],
             mcp_servers=resolved_mcp_servers,
         ),

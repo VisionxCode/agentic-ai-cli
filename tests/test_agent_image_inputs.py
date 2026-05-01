@@ -28,6 +28,21 @@ class RecordingRunner:
         return FakeRunResult(self.outputs[index])
 
 
+class ModelBehaviorRetryRunner:
+    def __init__(self, retry_output):
+        from agents.exceptions import ModelBehaviorError
+
+        self.calls = []
+        self.retry_output = retry_output
+        self.error = ModelBehaviorError("Tool  read_html_file not found in agent coder")
+
+    async def run(self, agent, input_items, **kwargs):
+        self.calls.append((agent, input_items, kwargs))
+        if len(self.calls) == 1:
+            raise self.error
+        return FakeRunResult(self.retry_output)
+
+
 class FakeRuntime:
     def __init__(self, runner):
         self.agent = object()
@@ -211,6 +226,32 @@ class AgentImageInputTests(unittest.TestCase):
                     )
 
             self.assertEqual(42, runner.calls[0][2]["max_turns"])
+
+        asyncio.run(run_test())
+
+    def test_coder_retries_once_after_model_behavior_tool_error(self):
+        async def run_test():
+            with tempfile.TemporaryDirectory() as temp_dir:
+                image_path = Path(temp_dir) / "original.png"
+                image_path.write_bytes(b"png bytes")
+                source_path = Path(temp_dir) / "src" / "index.html"
+                runner = ModelBehaviorRetryRunner("<html>retry ok</html>")
+                client = CoderAgentClient(FakeRuntime(runner))
+
+                result = await client.generate_html(
+                    original_image_path=image_path,
+                    source_path=source_path,
+                    current_source=None,
+                    previous_evaluation=None,
+                )
+
+            self.assertEqual("<html>retry ok</html>", result)
+            self.assertEqual(2, len(runner.calls))
+            retry_prompt = json.loads(runner.calls[1][1][0]["content"][0]["text"])
+            self.assertEqual("Recover from an invalid tool call and continue the same coding task.", retry_prompt["task"])
+            self.assertIn("Tool  read_html_file not found", retry_prompt["previous_error"])
+            self.assertIn("read_html_file", retry_prompt["valid_tool_names"])
+            self.assertIn("must match exactly", retry_prompt["tool_call_warning"])
 
         asyncio.run(run_test())
 

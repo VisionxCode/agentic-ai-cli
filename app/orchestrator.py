@@ -113,6 +113,11 @@ class JobOrchestrator:
                 current_source=current_source,
                 previous_evaluation=previous_evaluation,
             )
+            current_source = _ensure_renderable_source(
+                source_path=source_path,
+                returned_source=current_source,
+                iteration=iteration,
+            )
             self.logger.info(
                 "Iteration %s/%s: coder returned %s characters of HTML",
                 iteration,
@@ -220,3 +225,27 @@ def _source_tree_snapshot(source_root: Path) -> dict[str, str] | None:
         for path in sorted(source_root.rglob("*"))
         if path.is_file()
     }
+
+
+def _ensure_renderable_source(
+    *, source_path: Path, returned_source: str, iteration: int
+) -> str:
+    stripped_return = returned_source.strip()
+    if not source_path.exists() and stripped_return.lower().startswith(("<!doctype", "<html")):
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        source_path.write_text(stripped_return, encoding="utf-8")
+
+    if not source_path.exists():
+        raise RuntimeError(
+            "Coder did not create a renderable entrypoint at "
+            f"{source_path} during iteration {iteration}. "
+            "The model must write src/index.html or return complete HTML."
+        )
+
+    source = source_path.read_text(encoding="utf-8").strip()
+    if not source:
+        raise RuntimeError(
+            "Coder created an empty renderable entrypoint at "
+            f"{source_path} during iteration {iteration}."
+        )
+    return source

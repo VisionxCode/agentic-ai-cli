@@ -93,6 +93,13 @@ class FakeRenderer:
         return Path(output_path)
 
 
+class EmptyCoder:
+    async def generate_html(
+        self, *, original_image_path, source_path, current_source, previous_evaluation
+    ):
+        return ""
+
+
 class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
     async def test_logs_each_workflow_stage(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -120,6 +127,24 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Iteration 1/3: asking evaluator agent to compare images", output)
             self.assertIn("Iteration 1/3: score=0.4", output)
             self.assertIn("Iteration 2/3: target reached", output)
+
+    async def test_fails_before_render_when_coder_does_not_create_entrypoint(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            renderer = FakeRenderer()
+            orchestrator = JobOrchestrator(
+                workspaces_root=Path(temp_dir),
+                coder=EmptyCoder(),
+                evaluator=FakeEvaluator(),
+                renderer=renderer,
+                settings=RunSettings(target_score=0.9, max_iterations=3),
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "Coder did not create a renderable entrypoint"):
+                await orchestrator.run(
+                    JobRequest(job_id="job-empty", image_bytes=b"original", image_extension=".png")
+                )
+
+            self.assertEqual([], renderer.sources)
 
     async def test_runs_iterations_until_threshold_and_saves_final_artifacts(self):
         with tempfile.TemporaryDirectory() as temp_dir:

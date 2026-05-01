@@ -58,7 +58,7 @@ agents:
             (root / ".env").write_text(
                 """
 OPENROUTER_API_KEY=from-env-file
-OPENROUTER_MODEL=openai/gpt-5.2-chat
+OPENROUTER_MODEL=env-file-model
 OPENROUTER_HTTP_REFERER="http://localhost:8000"
 """,
                 encoding="utf-8",
@@ -72,7 +72,7 @@ OPENROUTER_HTTP_REFERER="http://localhost:8000"
                 load_env_file(root)
 
                 self.assertEqual("already-set", __import__("os").environ["OPENROUTER_API_KEY"])
-                self.assertEqual("openai/gpt-5.2-chat", __import__("os").environ["OPENROUTER_MODEL"])
+                self.assertEqual("env-file-model", __import__("os").environ["OPENROUTER_MODEL"])
                 self.assertEqual(
                     "http://localhost:8000",
                     __import__("os").environ["OPENROUTER_HTTP_REFERER"],

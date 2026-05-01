@@ -26,7 +26,7 @@ def validate_image_input_models(
             raise ValueError(
                 f"{agent_name} model '{normalized}' does not support image input. "
                 "This workflow sends images through OpenAI Agents SDK input_image payloads, "
-                "so choose a vision-capable OpenRouter model such as openai/gpt-4o."
+                "so choose a vision-capable OpenRouter model in your environment."
             )
         if normalized not in KNOWN_VISION_MODELS and logger is not None:
             logger.warning(

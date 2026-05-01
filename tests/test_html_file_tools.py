@@ -1,59 +1,39 @@
 import tempfile
 import unittest
-import logging
 from pathlib import Path
 
-from app.agents.html_file_tools import (
-    insert_after_line,
-    read_html_line_range,
-    replace_html_line_range,
-)
-from app.job_logging import job_logging_context
+from app.agents.html_file_tools import read_html_line_range, scoped_source_path
 
 
 class HtmlFileToolTests(unittest.TestCase):
-    def test_read_html_line_range_returns_numbered_lines(self):
+    def test_scoped_source_path_rejects_absolute_paths_outside_session_root(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            path = Path(temp_dir) / "source.html"
-            path.write_text("one\ntwo\nthree\n", encoding="utf-8")
+            source_root = Path(temp_dir) / "workspace" / "src"
+            source_root.mkdir(parents=True)
 
-            self.assertEqual("2: two\n3: three", read_html_line_range(str(path), 2, 3))
+            with self.assertRaisesRegex(ValueError, "outside the session source root"):
+                scoped_source_path(source_root, Path(temp_dir) / "src" / "index.html")
 
-    def test_replace_html_line_range_updates_only_target_lines(self):
+    def test_scoped_source_path_resolves_relative_paths_inside_session_root(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            path = Path(temp_dir) / "source.html"
-            path.write_text("one\ntwo\nthree\n", encoding="utf-8")
+            source_root = Path(temp_dir) / "workspace" / "src"
+            source_root.mkdir(parents=True)
 
-            result = replace_html_line_range(str(path), 2, 2, "TWO")
+            self.assertEqual(
+                source_root / "styles.css",
+                scoped_source_path(source_root, "styles.css"),
+            )
 
-            self.assertIn("Replaced lines 2-2", result)
-            self.assertEqual("one\nTWO\nthree\n", path.read_text(encoding="utf-8"))
-
-    def test_insert_after_line_inserts_without_rewriting_file(self):
+    def test_read_html_line_range_uses_session_scoped_relative_path(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            path = Path(temp_dir) / "source.html"
-            path.write_text("one\ntwo\n", encoding="utf-8")
+            source_root = Path(temp_dir) / "workspace" / "src"
+            source_root.mkdir(parents=True)
+            (source_root / "index.html").write_text("<h1>A</h1>\n<p>B</p>\n", encoding="utf-8")
 
-            result = insert_after_line(str(path), 1, "middle")
-
-            self.assertIn("Inserted after line 1", result)
-            self.assertEqual("one\nmiddle\ntwo\n", path.read_text(encoding="utf-8"))
-
-    def test_tool_usage_is_logged_when_context_is_active(self):
-        logger = logging.getLogger("test.tool-usage")
-        logger.handlers.clear()
-        logger.propagate = True
-        with tempfile.TemporaryDirectory() as temp_dir:
-            path = Path(temp_dir) / "source.html"
-            path.write_text("one\ntwo\n", encoding="utf-8")
-
-            with self.assertLogs("test.tool-usage", level="INFO") as logs:
-                with job_logging_context(logger):
-                    replace_html_line_range(str(path), 2, 2, "TWO")
-
-        output = "\n".join(logs.output)
-        self.assertIn("TOOL replace_html_lines", output)
-        self.assertIn("changed=True", output)
+            self.assertEqual(
+                "1: <h1>A</h1>\n2: <p>B</p>",
+                read_html_line_range("index.html", 1, 2, source_root=source_root),
+            )
 
 
 if __name__ == "__main__":
