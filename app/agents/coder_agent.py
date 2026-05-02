@@ -87,10 +87,21 @@ class CoderAgentClient:
                 ],
                 "image_sourcecode_skill_name": "image_to_sourcecode",
                 "iconography_skill_name": "iconography",
+                "tailwind_skill_name": "tailwind_css",
+                "tailwind_browser_script": "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4",
                 "huashu_skill_name": "huashu_design",
                 "huashu_main_skill": "assets/source/SKILL.md",
                 "huashu_references_dir": "assets/source/references",
+                "huashu_react_setup": "assets/source/references/react-setup.md",
                 "huashu_assets_dir": "assets/source/assets",
+                "tailwind": (
+                    "Use Tailwind utility classes when they speed up faithful layout, spacing, typography, or color matching. "
+                    "Use local CSS for precise screenshot-only details, custom shapes, or deterministic fallback styles."
+                ),
+                "react_components": (
+                    "Use React components when the source has repeated UI units, interactive state, design variants, "
+                    "or Huashu reusable assets. For simple static screenshots, plain semantic HTML remains acceptable."
+                ),
                 "icons": (
                     "For icon or vector asset decisions, read the iconography skill. Prefer inline/local SVG "
                     "for deterministic screenshot matching. Use Google Material Symbols as the default "
@@ -105,8 +116,13 @@ class CoderAgentClient:
             "workflow": (
                 "If this is the first iteration, create source_path as the entry file for the current web target "
                 "and create any supporting CSS, JavaScript, or local asset files in source_root, for example "
-                "styles.css, app.js, and icons.svg. "
+                "styles.css, app.js, components.jsx, and icons.svg. "
                 "Use relative links from index.html so Playwright can load the files from disk. "
+                "When Tailwind is helpful for fast faithful layout, include the Tailwind browser script "
+                "from https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4 and still keep local CSS for exact visual details or fallback styling. "
+                "When React components are helpful, use the Huashu React+Babel pattern: pinned React and Babel scripts, "
+                "script type=\"text/babel\" component files such as components.jsx, unique per-file style object names, "
+                "and Object.assign(window, {...}) for any cross-file components. "
                 "On later iterations, use list_source_files plus read_text_file/read_html_lines to inspect "
                 "the existing app, then make targeted edits with replace_html_lines, "
                 "insert_html_after_line, or write_text_file as appropriate. Do not recreate all files from "

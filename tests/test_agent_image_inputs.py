@@ -133,6 +133,27 @@ class AgentImageInputTests(unittest.TestCase):
             self.assertIn("supporting .css and .js files", str(static_prompt))
             self.assertIn("iconography_skill_name", static_data["skill_context"])
             self.assertEqual("iconography", static_data["skill_context"]["iconography_skill_name"])
+            self.assertEqual(
+                "Use Tailwind utility classes when they speed up faithful layout, spacing, typography, or color matching. "
+                "Use local CSS for precise screenshot-only details, custom shapes, or deterministic fallback styles.",
+                static_data["skill_context"]["tailwind"],
+            )
+            self.assertEqual(
+                "Use React components when the source has repeated UI units, interactive state, design variants, "
+                "or Huashu reusable assets. For simple static screenshots, plain semantic HTML remains acceptable.",
+                static_data["skill_context"]["react_components"],
+            )
+            self.assertEqual(
+                "assets/source/references/react-setup.md",
+                static_data["skill_context"]["huashu_react_setup"],
+            )
+            self.assertEqual("tailwind_css", static_data["skill_context"]["tailwind_skill_name"])
+            self.assertEqual(
+                "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4",
+                static_data["skill_context"]["tailwind_browser_script"],
+            )
+            self.assertIn("@tailwindcss/browser@4", str(static_prompt))
+            self.assertIn("components.jsx", str(static_prompt))
             self.assertNotIn("current_source_preview", static_data)
             self.assertIn("artifact_memory", static_data)
             self.assertNotIn("dynamic_context", static_data)
