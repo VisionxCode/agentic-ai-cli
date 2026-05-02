@@ -1,7 +1,7 @@
 import logging
 import unittest
 
-from app.main import _build_orchestrator
+from app.runtime import _build_orchestrator
 
 
 class MainLoggingTests(unittest.TestCase):

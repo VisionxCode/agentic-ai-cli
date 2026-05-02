@@ -2,15 +2,17 @@
 
 This project separates the agent workflow into deterministic orchestration, OpenAI Agents SDK agent definitions, reusable skills, system instructions, MCP configs, and per-job artifacts.
 
-Run the API:
+Run the CLI:
 
 ```powershell
 uv sync
 uv run playwright install chromium
 Copy-Item .env.example .env
 # Edit .env and set OPENROUTER_API_KEY and OPENROUTER_MODEL.
-uv run uvicorn app.main:app --reload
+uv run python -m app.main --image path\to\original.png --note "Optional guidance"
 ```
+
+The command prints the job status, score, iteration count, final artifact paths, and per-job log path. Add `--json` for machine-readable output, or `--job-id your-id` to choose the workspace/log id.
 
 The Agents SDK is configured with `OpenAIChatCompletionsModel` and `AsyncOpenAI(base_url="https://openrouter.ai/api/v1")`, which matches OpenRouter's OpenAI-compatible Chat Completions API.
 
