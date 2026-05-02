@@ -6,12 +6,12 @@ from typing import Any
 from app.providers.codex import build_codex_model
 from app.providers.openrouter import (
     OPENROUTER_BASE_URL,
+    build_openrouter_model,
     openrouter_extra_body,
     openrouter_provider_extra_body,
     openrouter_reasoning_extra_body,
     openrouter_setting,
     openrouter_temperature,
-    build_openrouter_model,
 )
 from app.providers.selection import ProviderName, resolve_provider
 

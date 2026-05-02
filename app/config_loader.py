@@ -168,14 +168,12 @@ def load_models(project_root: Path, provider: str | None = None) -> dict[str, st
 
     if normalized_provider == "codex":
         models = _saved_provider_models("codex")
-        shared_model = os.getenv("CODEX_MODEL")
-        if shared_model:
-            models["coder"] = shared_model
-            models["evaluator"] = shared_model
-        if os.getenv("CODEX_CODER_MODEL"):
-            models["coder"] = os.environ["CODEX_CODER_MODEL"]
-        if os.getenv("CODEX_EVALUATOR_MODEL"):
-            models["evaluator"] = os.environ["CODEX_EVALUATOR_MODEL"]
+        _apply_model_env_overrides(
+            models,
+            shared_env="CODEX_MODEL",
+            coder_env="CODEX_CODER_MODEL",
+            evaluator_env="CODEX_EVALUATOR_MODEL",
+        )
         missing = [name for name in ("coder", "evaluator") if not models.get(name)]
         if missing:
             raise RuntimeError(
@@ -190,15 +188,30 @@ def load_models(project_root: Path, provider: str | None = None) -> dict[str, st
 
     models = configured_models
     models.update(_saved_provider_models("openrouter"))
-    shared_model = os.getenv("OPENROUTER_MODEL")
+    _apply_model_env_overrides(
+        models,
+        shared_env="OPENROUTER_MODEL",
+        coder_env="OPENROUTER_CODER_MODEL",
+        evaluator_env="OPENROUTER_EVALUATOR_MODEL",
+    )
+    return models
+
+
+def _apply_model_env_overrides(
+    models: dict[str, str],
+    *,
+    shared_env: str,
+    coder_env: str,
+    evaluator_env: str,
+) -> None:
+    shared_model = os.getenv(shared_env)
     if shared_model:
         models["coder"] = shared_model
         models["evaluator"] = shared_model
-    if os.getenv("OPENROUTER_CODER_MODEL"):
-        models["coder"] = os.environ["OPENROUTER_CODER_MODEL"]
-    if os.getenv("OPENROUTER_EVALUATOR_MODEL"):
-        models["evaluator"] = os.environ["OPENROUTER_EVALUATOR_MODEL"]
-    return models
+    if os.getenv(coder_env):
+        models["coder"] = os.environ[coder_env]
+    if os.getenv(evaluator_env):
+        models["evaluator"] = os.environ[evaluator_env]
 
 
 def _saved_provider_models(provider: str) -> dict[str, str]:

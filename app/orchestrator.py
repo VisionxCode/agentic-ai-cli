@@ -9,6 +9,9 @@ from typing import Any, Protocol
 from app.workspace import IterationArtifacts, JobWorkspace
 
 
+DEFAULT_VIEWPORT = {"width": 1440, "height": 900}
+
+
 class Coder(Protocol):
     async def generate_html(
         self,
@@ -60,6 +63,13 @@ class JobResult:
     report: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class BestIteration:
+    artifacts: IterationArtifacts
+    evaluation: dict[str, Any]
+    score: float
+
+
 class JobOrchestrator:
     def __init__(
         self,
@@ -83,7 +93,7 @@ class JobOrchestrator:
     async def run(self, request: JobRequest) -> JobResult:
         workspace = JobWorkspace.create(self.workspaces_root, request.job_id)
         original_path = workspace.save_original_image(request.image_bytes, request.image_extension)
-        viewport = self.settings.viewport or {"width": 1440, "height": 900}
+        viewport = self.settings.viewport or DEFAULT_VIEWPORT
         self.logger.info(
             "Job %s initialized: original=%s viewport=%sx%s target_score=%s max_iterations=%s",
             request.job_id,
@@ -97,31 +107,22 @@ class JobOrchestrator:
         current_source: str | None = None
         previous_evaluation: dict[str, Any] | None = None
         last_screenshot: Path | None = None
-        best_iteration: IterationArtifacts | None = None
-        best_evaluation: dict[str, Any] | None = None
-        best_score = float("-inf")
+        best: BestIteration | None = None
         source_root = workspace.root / "working" / "src"
         source_path = source_root / "index.html"
         source_path.parent.mkdir(parents=True, exist_ok=True)
 
         for iteration in range(1, self.settings.max_iterations + 1):
-            best_is_latest_iteration = (
-                best_iteration is not None and best_iteration.root.name == f"{iteration - 1:03d}"
-            )
-            if (
-                best_iteration is not None
-                and best_evaluation is not None
-                and not best_is_latest_iteration
-            ):
-                _restore_source_tree(source_root=source_root, iteration=best_iteration)
+            if best is not None and not _best_is_previous_iteration(best, iteration):
+                _restore_source_tree(source_root=source_root, iteration=best.artifacts)
                 current_source = source_path.read_text(encoding="utf-8").strip()
-                previous_evaluation = best_evaluation
-                last_screenshot = best_iteration.generated_image
+                previous_evaluation = best.evaluation
+                last_screenshot = best.artifacts.generated_image
                 self.logger.info(
                     "Iteration %s/%s: restored best-scoring source as edit base score=%s",
                     iteration,
                     self.settings.max_iterations,
-                    best_score,
+                    best.score,
                 )
             source_before = _source_tree_snapshot(source_root)
             interrupted_status: str | None = None
@@ -152,23 +153,19 @@ class JobOrchestrator:
                 if source_path.exists() and source_path.read_text(encoding="utf-8").strip():
                     current_source = source_path.read_text(encoding="utf-8")
                     interrupted_status = "agent_max_turns_reached"
-                elif best_iteration is not None and best_evaluation is not None:
+                elif best is not None:
                     self.logger.warning(
                         "Iteration %s/%s: no renderable partial source; saving previous best score=%s",
                         iteration,
                         self.settings.max_iterations,
-                        best_score,
+                        best.score,
                     )
-                    final = workspace.save_final_from_iteration(best_iteration, best_evaluation)
-                    return JobResult(
+                    return _job_result_from_best(
+                        workspace=workspace,
                         job_id=request.job_id,
                         status="agent_max_turns_reached",
-                        final_score=best_score,
                         iterations=iteration - 1,
-                        final_source_path=final.source,
-                        final_generated_image_path=final.generated_image,
-                        final_report_path=final.report,
-                        report=best_evaluation,
+                        best=best,
                     )
                 else:
                     raise
@@ -223,10 +220,12 @@ class JobOrchestrator:
             )
             previous_evaluation = evaluation
             score = float(evaluation.get("score", 0.0))
-            if score > best_score:
-                best_iteration = iteration_artifacts
-                best_evaluation = evaluation
-                best_score = score
+            best = _new_best_iteration(
+                current_best=best,
+                artifacts=iteration_artifacts,
+                evaluation=evaluation,
+                score=score,
+            )
             self.logger.info(
                 "Iteration %s/%s: score=%s identical=%s critique=%s",
                 iteration,
@@ -247,40 +246,67 @@ class JobOrchestrator:
                     iteration,
                     self.settings.max_iterations,
                 )
-                assert best_iteration is not None
-                assert best_evaluation is not None
-                final = workspace.save_final_from_iteration(best_iteration, best_evaluation)
-                return JobResult(
+                assert best is not None
+                return _job_result_from_best(
+                    workspace=workspace,
                     job_id=request.job_id,
                     status="completed",
-                    final_score=best_score,
                     iterations=iteration,
-                    final_source_path=final.source,
-                    final_generated_image_path=final.generated_image,
-                    final_report_path=final.report,
-                    report=best_evaluation,
+                    best=best,
                 )
 
         assert current_source is not None
         assert previous_evaluation is not None
         assert last_screenshot is not None
-        assert best_iteration is not None
-        assert best_evaluation is not None
+        assert best is not None
         self.logger.info(
             "Max iterations reached; saving best-scoring final artifacts with score=%s",
-            best_score,
+            best.score,
         )
-        final = workspace.save_final_from_iteration(best_iteration, best_evaluation)
-        return JobResult(
+        return _job_result_from_best(
+            workspace=workspace,
             job_id=request.job_id,
             status="max_iterations_reached",
-            final_score=best_score,
             iterations=self.settings.max_iterations,
-            final_source_path=final.source,
-            final_generated_image_path=final.generated_image,
-            final_report_path=final.report,
-            report=best_evaluation,
+            best=best,
         )
+
+
+def _best_is_previous_iteration(best: BestIteration, iteration: int) -> bool:
+    return best.artifacts.root.name == f"{iteration - 1:03d}"
+
+
+def _new_best_iteration(
+    *,
+    current_best: BestIteration | None,
+    artifacts: IterationArtifacts,
+    evaluation: dict[str, Any],
+    score: float,
+) -> BestIteration:
+    if current_best is not None and score <= current_best.score:
+        return current_best
+    return BestIteration(artifacts=artifacts, evaluation=evaluation, score=score)
+
+
+def _job_result_from_best(
+    *,
+    workspace: JobWorkspace,
+    job_id: str,
+    status: str,
+    iterations: int,
+    best: BestIteration,
+) -> JobResult:
+    final = workspace.save_final_from_iteration(best.artifacts, best.evaluation)
+    return JobResult(
+        job_id=job_id,
+        status=status,
+        final_score=best.score,
+        iterations=iterations,
+        final_source_path=final.source,
+        final_generated_image_path=final.generated_image,
+        final_report_path=final.report,
+        report=best.evaluation,
+    )
 
 
 def _restore_source_tree(*, source_root: Path, iteration: IterationArtifacts) -> None:

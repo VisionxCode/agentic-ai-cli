@@ -10,7 +10,13 @@ from unittest.mock import patch
 
 from app.agents.sdk_common import build_agent_runtime
 from app.config_loader import load_models
-from app.providers.codex import _normalize_codex_final_response, _tool_call_from_leaked_text
+from app.providers.codex import (
+    _codex_continuation_input,
+    _codex_needs_continuation,
+    _consume_codex_event_stream,
+    _normalize_codex_final_response,
+    _tool_call_from_leaked_text,
+)
 from app.providers.codex_auth import read_codex_tokens, save_codex_tokens
 from app.providers.selection import resolve_provider
 from app.providers.settings import save_active_provider, save_provider_models
@@ -200,6 +206,64 @@ class ProviderSelectionTests(unittest.TestCase):
         self.assertEqual(1, len(normalized.output))
         self.assertEqual("message", getattr(normalized.output[0], "type", None))
 
+    def test_codex_empty_completed_response_does_not_continue(self):
+        response = types.SimpleNamespace(output=[], output_text="", status="completed")
+
+        self.assertFalse(_codex_needs_continuation(response))
+
+    def test_codex_reasoning_only_response_still_continues(self):
+        response = types.SimpleNamespace(
+            output=[
+                types.SimpleNamespace(
+                    type="reasoning",
+                    encrypted_content="enc_123",
+                    status="completed",
+                )
+            ],
+            output_text="",
+            status="completed",
+        )
+
+        self.assertTrue(_codex_needs_continuation(response))
+
+    def test_codex_stream_backfills_output_items_from_done_events(self):
+        output_item = types.SimpleNamespace(
+            type="message",
+            role="assistant",
+            status="completed",
+            content=[types.SimpleNamespace(type="output_text", text="<html>streamed</html>")],
+        )
+        final_response = types.SimpleNamespace(output=[], output_text="", status="completed")
+        events = [
+            types.SimpleNamespace(type="response.output_item.done", item=output_item),
+            types.SimpleNamespace(type="response.completed", response=final_response),
+        ]
+
+        response, streamed_text = _run_async(_consume_codex_event_stream(_AsyncEvents(events)))
+
+        self.assertEqual("", streamed_text)
+        self.assertIs(response, final_response)
+        self.assertEqual([output_item], response.output)
+
+    def test_codex_reasoning_continuation_adds_following_assistant_message(self):
+        original_input = [{"role": "user", "content": "Build the page"}]
+        response = types.SimpleNamespace(
+            output=[
+                types.SimpleNamespace(
+                    type="reasoning",
+                    encrypted_content="enc_123",
+                    summary=[],
+                    status="completed",
+                )
+            ]
+        )
+
+        continuation = _codex_continuation_input(original_input, response)
+
+        self.assertEqual("reasoning", continuation[1]["type"])
+        self.assertEqual({"role": "assistant", "content": ""}, continuation[2])
+        self.assertEqual("user", continuation[3]["role"])
+
 
 def _jwt_with_exp(exp: int, *, account_id: str | None = None) -> str:
     payload = {"exp": exp}
@@ -207,6 +271,27 @@ def _jwt_with_exp(exp: int, *, account_id: str | None = None) -> str:
         payload["https://api.openai.com/auth"] = {"chatgpt_account_id": account_id}
     encoded = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("ascii").rstrip("=")
     return f"header.{encoded}.signature"
+
+
+class _AsyncEvents:
+    def __init__(self, events):
+        self._events = events
+
+    def __aiter__(self):
+        self._iterator = iter(self._events)
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._iterator)
+        except StopIteration as exc:
+            raise StopAsyncIteration from exc
+
+
+def _run_async(coro):
+    import asyncio
+
+    return asyncio.run(coro)
 
 
 if __name__ == "__main__":

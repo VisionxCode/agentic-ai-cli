@@ -28,6 +28,10 @@ from app.providers.settings import (
 from app.runtime import log_path_for, run_job_from_image_path
 
 
+PROVIDER_COMMAND = "provider"
+AUTH_COMMAND = "auth"
+
+
 def _display_path(path: Path) -> str:
     return path.as_posix()
 
@@ -108,23 +112,18 @@ def print_text_summary(result: JobResult) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     raw_args = list(argv) if argv is not None else sys.argv[1:]
-    if raw_args and raw_args[0] == "provider":
-        return provider_main(raw_args[1:])
-    if raw_args and raw_args[0] == "auth":
-        return auth_main(raw_args[1:])
+    command_exit_code = _dispatch_nested_command(raw_args)
+    if command_exit_code is not None:
+        return command_exit_code
 
-    parser = build_parser()
-    try:
-        args = parser.parse_args(raw_args)
-    except SystemExit as exc:
-        return int(exc.code)
+    args = _parse_or_exit(build_parser(), raw_args)
+    if isinstance(args, int):
+        return args
 
     image_path = Path(args.image)
-    if not image_path.exists():
-        print(f"Image path does not exist: {image_path}", file=sys.stderr)
-        return 2
-    if not image_path.is_file():
-        print(f"Image path is not a file: {image_path}", file=sys.stderr)
+    image_error = _validate_image_path(image_path)
+    if image_error is not None:
+        print(image_error, file=sys.stderr)
         return 2
 
     try:
@@ -147,12 +146,36 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-def provider_main(argv: Sequence[str] | None = None) -> int:
-    parser = build_provider_parser()
+def _dispatch_nested_command(raw_args: list[str]) -> int | None:
+    if raw_args and raw_args[0] == PROVIDER_COMMAND:
+        return provider_main(raw_args[1:])
+    if raw_args and raw_args[0] == AUTH_COMMAND:
+        return auth_main(raw_args[1:])
+    return None
+
+
+def _parse_or_exit(
+    parser: argparse.ArgumentParser,
+    argv: Sequence[str] | None,
+) -> argparse.Namespace | int:
     try:
-        args = parser.parse_args(argv)
+        return parser.parse_args(argv)
     except SystemExit as exc:
         return int(exc.code)
+
+
+def _validate_image_path(image_path: Path) -> str | None:
+    if not image_path.exists():
+        return f"Image path does not exist: {image_path}"
+    if not image_path.is_file():
+        return f"Image path is not a file: {image_path}"
+    return None
+
+
+def provider_main(argv: Sequence[str] | None = None) -> int:
+    args = _parse_or_exit(build_provider_parser(), argv)
+    if isinstance(args, int):
+        return args
 
     if args.command == "status":
         _print_provider_status()
@@ -168,11 +191,9 @@ def provider_main(argv: Sequence[str] | None = None) -> int:
 
 
 def auth_main(argv: Sequence[str] | None = None) -> int:
-    parser = build_auth_parser()
-    try:
-        args = parser.parse_args(argv)
-    except SystemExit as exc:
-        return int(exc.code)
+    args = _parse_or_exit(build_auth_parser(), argv)
+    if isinstance(args, int):
+        return args
 
     if args.provider == "codex":
         return _run_codex_auth_action(args.command)
