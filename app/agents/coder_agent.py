@@ -73,7 +73,7 @@ class CoderAgentClient:
         if previous_screenshot_path is not None:
             image_inputs.append({"label": "previous_rendered_screenshot", "detail": "high"})
         static_prompt = {
-            "task": "Generate or revise a multi-file HTML/CSS/JavaScript app matching the original image.",
+            "task": "Generate or revise a multi-file source-code app matching the original image.",
             "source_path": "index.html",
             "source_root": ".",
             "workspace_boundary": (
@@ -85,18 +85,27 @@ class CoderAgentClient:
                     "list_skill_files(skill_name, relative_dir='.')",
                     "read_skill_file(skill_name, relative_path, max_chars=30000)",
                 ],
+                "image_sourcecode_skill_name": "image_to_sourcecode",
+                "iconography_skill_name": "iconography",
                 "huashu_skill_name": "huashu_design",
                 "huashu_main_skill": "assets/source/SKILL.md",
                 "huashu_references_dir": "assets/source/references",
                 "huashu_assets_dir": "assets/source/assets",
+                "icons": (
+                    "For icon or vector asset decisions, read the iconography skill. Prefer inline/local SVG "
+                    "for deterministic screenshot matching. Use Google Material Symbols as the default "
+                    "coherent UI icon vocabulary when font loading is acceptable, and Iconify/MCP retrieval "
+                    "for broader or branded icon sets when available."
+                ),
                 "web_search": (
                     "When MiniMax MCP tools are available, use them for current product facts, "
                     "official brand assets, logos, screenshots, release/spec checks, and source URLs."
                 ),
             },
             "workflow": (
-                "If this is the first iteration, create source_path as the entry HTML file and create "
-                "any supporting CSS or JavaScript files in source_root, for example styles.css and app.js. "
+                "If this is the first iteration, create source_path as the entry file for the current web target "
+                "and create any supporting CSS, JavaScript, or local asset files in source_root, for example "
+                "styles.css, app.js, and icons.svg. "
                 "Use relative links from index.html so Playwright can load the files from disk. "
                 "On later iterations, use list_source_files plus read_text_file/read_html_lines to inspect "
                 "the existing app, then make targeted edits with replace_html_lines, "

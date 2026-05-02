@@ -4,9 +4,9 @@ agents:
       - instructions/coder_system.md
       - instructions/shared_rules.md
     skills:
-      - skills/image_to_html/SKILL.md
+      - skills/image_to_sourcecode/SKILL.md
       - skills/css_layout/SKILL.md
-      - skills/svg_generation/SKILL.md
+      - skills/iconography/SKILL.md
       - skills/huashu_design/SKILL.md
     tools:
       - file_ops

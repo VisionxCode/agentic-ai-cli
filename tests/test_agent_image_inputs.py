@@ -122,11 +122,17 @@ class AgentImageInputTests(unittest.TestCase):
             self.assertEqual(["input_text", "input_image", "input_text"], [item["type"] for item in content])
             self.assertEqual("index.html", static_data["source_path"])
             self.assertEqual(".", static_data["source_root"])
+            self.assertEqual(
+                "Generate or revise a multi-file source-code app matching the original image.",
+                static_data["task"],
+            )
             self.assertIn("Use only relative paths", static_data["workspace_boundary"])
             self.assertIn("list_source_files", str(static_prompt))
             self.assertIn("read_text_file", str(static_prompt))
             self.assertIn("replace_html_lines", str(static_prompt))
             self.assertIn("supporting .css and .js files", str(static_prompt))
+            self.assertIn("iconography_skill_name", static_data["skill_context"])
+            self.assertEqual("iconography", static_data["skill_context"]["iconography_skill_name"])
             self.assertNotIn("current_source_preview", static_data)
             self.assertIn("artifact_memory", static_data)
             self.assertNotIn("dynamic_context", static_data)

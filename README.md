@@ -1,4 +1,4 @@
-# Image-to-HTML Agent Workflow
+# Image-to-Source-Code Agent Workflow
 
 This project separates the agent workflow into deterministic orchestration, OpenAI Agents SDK agent definitions, reusable skills, system instructions, MCP configs, and per-job artifacts.
 

@@ -11,7 +11,7 @@ class RegistryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             (root / "instructions").mkdir()
-            (root / "skills" / "image_to_html").mkdir(parents=True)
+            (root / "skills" / "image_to_sourcecode").mkdir(parents=True)
             (root / "config").mkdir()
 
             (root / "instructions" / "coder_system.md").write_text(
@@ -20,8 +20,8 @@ class RegistryTests(unittest.TestCase):
             (root / "instructions" / "shared_rules.md").write_text(
                 "Shared rule.", encoding="utf-8"
             )
-            (root / "skills" / "image_to_html" / "SKILL.md").write_text(
-                "Image skill.", encoding="utf-8"
+            (root / "skills" / "image_to_sourcecode" / "SKILL.md").write_text(
+                "Image source-code skill.", encoding="utf-8"
             )
             (root / "config" / "agent_registry.yaml").write_text(
                 """
@@ -31,7 +31,7 @@ agents:
       - instructions/coder_system.md
       - instructions/shared_rules.md
     skills:
-      - skills/image_to_html/SKILL.md
+      - skills/image_to_sourcecode/SKILL.md
     tools:
       - file_ops
       - render_screenshot
@@ -44,13 +44,22 @@ agents:
         self.assertEqual(profile.tool_names, ["file_ops", "render_screenshot"])
         self.assertIn("Coder instruction.", profile.instructions)
         self.assertIn("Shared rule.", profile.instructions)
-        self.assertIn("Image skill.", profile.instructions)
+        self.assertIn("Image source-code skill.", profile.instructions)
 
     def test_project_coder_profile_includes_huashu_design_skill(self):
         profile = load_agent_profile(Path("app"), "coder")
 
+        self.assertIn(Path("app/skills/image_to_sourcecode/SKILL.md"), profile.skill_paths)
+        self.assertIn(Path("app/skills/iconography/SKILL.md"), profile.skill_paths)
+        self.assertNotIn(Path("app/skills/image_to_html/SKILL.md"), profile.skill_paths)
+        self.assertNotIn(Path("app/skills/svg_generation/SKILL.md"), profile.skill_paths)
         self.assertIn(Path("app/skills/huashu_design/SKILL.md"), profile.skill_paths)
         self.assertIn("Huashu Design", profile.instructions)
+        self.assertIn("Image To Source Code", profile.instructions)
+        self.assertIn("Iconography", profile.instructions)
+        self.assertIn("Corporate Logos", profile.instructions)
+        self.assertIn("MiniMax MCP", profile.instructions)
+        self.assertIn("assets/logos/", profile.instructions)
 
     def test_env_file_populates_openrouter_settings_without_overriding_environment(self):
         with tempfile.TemporaryDirectory() as temp_dir:
