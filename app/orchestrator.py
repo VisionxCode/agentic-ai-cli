@@ -16,6 +16,8 @@ class Coder(Protocol):
         source_path: Path,
         current_source: str | None,
         previous_evaluation: dict[str, Any] | None,
+        iteration_number: int,
+        previous_screenshot_path: Path | None,
     ) -> str: ...
 
 
@@ -112,6 +114,8 @@ class JobOrchestrator:
                 source_path=source_path,
                 current_source=current_source,
                 previous_evaluation=previous_evaluation,
+                iteration_number=iteration,
+                previous_screenshot_path=last_screenshot,
             )
             current_source = _ensure_renderable_source(
                 source_path=source_path,

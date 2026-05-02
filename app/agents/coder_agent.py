@@ -62,12 +62,18 @@ class CoderAgentClient:
         source_path: Path,
         current_source: str | None,
         previous_evaluation: dict[str, Any] | None,
+        iteration_number: int,
+        previous_screenshot_path: Path | None,
     ) -> str:
         source_exists = source_path.exists()
         source_root = source_path.parent
         runtime = self._runtime_for_source_root(source_root)
+        image_inputs = [{"label": "original_reference", "detail": "high"}]
+        if previous_screenshot_path is not None:
+            image_inputs.append({"label": "previous_rendered_screenshot", "detail": "high"})
         prompt = {
             "task": "Generate or revise a multi-file HTML/CSS/JavaScript app matching the original image.",
+            "iteration_number": iteration_number,
             "source_path": "index.html",
             "source_root": ".",
             "workspace_boundary": (
@@ -97,8 +103,13 @@ class CoderAgentClient:
                 "insert_html_after_line, or write_text_file as appropriate. Do not recreate all files from "
                 "scratch unless the existing app is unusable."
             ),
+            "required_first_revision_actions": [
+                "list_source_files",
+                "read_text_file or read_html_lines for files likely affected by previous_evaluation",
+            ],
             "revision_rules": [
                 "Use tool names exactly as listed. Never add spaces, punctuation, namespace prefixes, or aliases.",
+                "For revision iterations, first call list_source_files, then read_text_file or read_html_lines before editing.",
                 "Before editing, search for the affected section and read nearby numbered lines.",
                 "Prefer small line-range replacements in index.html and focused CSS/JavaScript file updates.",
                 "Preserve useful existing HTML/CSS/JavaScript structure.",
@@ -107,20 +118,22 @@ class CoderAgentClient:
                 "After edits are saved, return UPDATED_SOURCE_READY instead of the whole document.",
             ],
             "source_exists": source_exists,
-            "current_source_preview": current_source[:4000] if current_source else None,
+            "source_manifest": _source_manifest(source_root),
             "previous_evaluation": previous_evaluation,
+            "image_inputs": image_inputs,
             "output_contract": (
                 "Persist the entry HTML in source_path and supporting assets in source_root. If you return "
                 "complete HTML, it will be written to source_path as a fallback. Otherwise return "
                 "UPDATED_SOURCE_READY."
             ),
         }
-        input_items = user_message_with_content(
-            [
-                text_input(prompt),
-                image_input_from_path(original_image_path, detail="high"),
-            ]
-        )
+        content = [
+            text_input(prompt),
+            image_input_from_path(original_image_path, detail="high"),
+        ]
+        if previous_screenshot_path is not None:
+            content.append(image_input_from_path(previous_screenshot_path, detail="high"))
+        input_items = user_message_with_content(content)
         connect_mcp_servers = getattr(runtime, "connect_mcp_servers", None)
         if connect_mcp_servers is not None:
             await connect_mcp_servers()
@@ -202,3 +215,16 @@ def _tool_error_retry_prompt(original_prompt: dict[str, Any], exc: Exception) ->
         "valid_tool_names": CODER_TOOL_NAMES,
         "original_task": original_prompt,
     }
+
+
+def _source_manifest(source_root: Path) -> list[dict[str, Any]]:
+    if not source_root.exists():
+        return []
+    return [
+        {
+            "path": str(path.relative_to(source_root)).replace("\\", "/"),
+            "size_bytes": path.stat().st_size,
+        }
+        for path in sorted(source_root.rglob("*"))
+        if path.is_file()
+    ]

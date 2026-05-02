@@ -12,9 +12,25 @@ class FakeCoder:
         self.change_on_revision = change_on_revision
 
     async def generate_html(
-        self, *, original_image_path, source_path, current_source, previous_evaluation
+        self,
+        *,
+        original_image_path,
+        source_path,
+        current_source,
+        previous_evaluation,
+        iteration_number,
+        previous_screenshot_path,
     ):
-        self.calls.append((original_image_path, source_path, current_source, previous_evaluation))
+        self.calls.append(
+            (
+                original_image_path,
+                source_path,
+                current_source,
+                previous_evaluation,
+                iteration_number,
+                previous_screenshot_path,
+            )
+        )
         if previous_evaluation:
             if self.change_on_revision:
                 source_path.write_text("<html>improved</html>", encoding="utf-8")
@@ -70,7 +86,14 @@ class VersionedCoder:
         self.calls = 0
 
     async def generate_html(
-        self, *, original_image_path, source_path, current_source, previous_evaluation
+        self,
+        *,
+        original_image_path,
+        source_path,
+        current_source,
+        previous_evaluation,
+        iteration_number,
+        previous_screenshot_path,
     ):
         self.calls += 1
         source_path.write_text(f"<html>version {self.calls}</html>", encoding="utf-8")
@@ -95,7 +118,14 @@ class FakeRenderer:
 
 class EmptyCoder:
     async def generate_html(
-        self, *, original_image_path, source_path, current_source, previous_evaluation
+        self,
+        *,
+        original_image_path,
+        source_path,
+        current_source,
+        previous_evaluation,
+        iteration_number,
+        previous_screenshot_path,
     ):
         return ""
 
@@ -176,6 +206,10 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(coder.calls[0][1], coder.calls[1][1])
             self.assertIsNotNone(coder.calls[1][3])
+            self.assertEqual(1, coder.calls[0][4])
+            self.assertIsNone(coder.calls[0][5])
+            self.assertEqual(2, coder.calls[1][4])
+            self.assertEqual(root / "screenshots" / "job-abc" / "iterations" / "001.png", coder.calls[1][5])
             self.assertEqual(renderer.sources, ["<html>first</html>", "<html>improved</html>"])
             final_src = root / "workspaces" / "job-abc" / "final" / "src"
             self.assertEqual((final_src / "styles.css").read_text(encoding="utf-8"), "body { margin: 0; }")

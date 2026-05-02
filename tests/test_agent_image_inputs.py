@@ -78,6 +78,8 @@ class AgentImageInputTests(unittest.TestCase):
                     source_path=Path(temp_dir) / "source.html",
                     current_source=None,
                     previous_evaluation=None,
+                    iteration_number=1,
+                    previous_screenshot_path=None,
                 )
 
             input_items = runner.calls[0][1]
@@ -92,7 +94,8 @@ class AgentImageInputTests(unittest.TestCase):
     def test_coder_prompts_for_editing_existing_source_file(self):
         async def run_test():
             with tempfile.TemporaryDirectory() as temp_dir:
-                source_path = Path(temp_dir) / "source.html"
+                source_path = Path(temp_dir) / "src" / "source.html"
+                source_path.parent.mkdir()
                 source_path.write_text("<html>old</html>", encoding="utf-8")
                 image_path = Path(temp_dir) / "original.png"
                 image_path.write_bytes(b"png bytes")
@@ -104,6 +107,8 @@ class AgentImageInputTests(unittest.TestCase):
                     source_path=source_path,
                     current_source="<html>old</html>",
                     previous_evaluation={"revision_instructions": ["make title bigger"]},
+                    iteration_number=2,
+                    previous_screenshot_path=None,
                 )
 
             prompt = runner.calls[0][1][0]["content"][0]["text"]
@@ -116,6 +121,50 @@ class AgentImageInputTests(unittest.TestCase):
             self.assertIn("read_text_file", str(prompt))
             self.assertIn("replace_html_lines", str(prompt))
             self.assertIn("supporting .css and .js files", str(prompt))
+            self.assertNotIn("current_source_preview", prompt_data)
+            self.assertEqual(2, prompt_data["iteration_number"])
+            self.assertEqual(
+                [{"path": "source.html", "size_bytes": len("<html>old</html>")}],
+                prompt_data["source_manifest"],
+            )
+            self.assertEqual(
+                [
+                    "list_source_files",
+                    "read_text_file or read_html_lines for files likely affected by previous_evaluation",
+                ],
+                prompt_data["required_first_revision_actions"],
+            )
+
+        asyncio.run(run_test())
+
+    def test_coder_sends_previous_rendered_screenshot_when_available(self):
+        async def run_test():
+            with tempfile.TemporaryDirectory() as temp_dir:
+                source_path = Path(temp_dir) / "src" / "index.html"
+                source_path.parent.mkdir()
+                source_path.write_text("<html>old</html>", encoding="utf-8")
+                image_path = Path(temp_dir) / "original.png"
+                image_path.write_bytes(b"original bytes")
+                screenshot_path = Path(temp_dir) / "previous.png"
+                screenshot_path.write_bytes(b"previous screenshot bytes")
+                runner = RecordingRunner("UPDATED_SOURCE_READY")
+                client = CoderAgentClient(FakeRuntime(runner))
+
+                await client.generate_html(
+                    original_image_path=image_path,
+                    source_path=source_path,
+                    current_source="<html>old</html>",
+                    previous_evaluation={"critique": "spacing is off"},
+                    iteration_number=2,
+                    previous_screenshot_path=screenshot_path,
+                )
+
+            content = runner.calls[0][1][0]["content"]
+            prompt_data = json.loads(content[0]["text"])
+            image_items = [item for item in content if item["type"] == "input_image"]
+            self.assertEqual(2, len(image_items))
+            self.assertEqual("original_reference", prompt_data["image_inputs"][0]["label"])
+            self.assertEqual("previous_rendered_screenshot", prompt_data["image_inputs"][1]["label"])
 
         asyncio.run(run_test())
 
@@ -224,6 +273,8 @@ class AgentImageInputTests(unittest.TestCase):
                         source_path=source_path,
                         current_source=None,
                         previous_evaluation=None,
+                        iteration_number=1,
+                        previous_screenshot_path=None,
                     )
 
             self.assertEqual(42, runner.calls[0][2]["max_turns"])
@@ -244,6 +295,8 @@ class AgentImageInputTests(unittest.TestCase):
                     source_path=source_path,
                     current_source=None,
                     previous_evaluation=None,
+                    iteration_number=1,
+                    previous_screenshot_path=None,
                 )
 
             self.assertEqual("<html>retry ok</html>", result)
