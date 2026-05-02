@@ -66,6 +66,6 @@ class PlaywrightScreenshotRenderer:
                 }
             )
             await page.goto(html_path.resolve().as_uri(), wait_until="networkidle")
-            await page.screenshot(path=str(output_path), full_page=True)
+            await page.screenshot(path=str(output_path), full_page=False)
             await browser.close()
         return output_path

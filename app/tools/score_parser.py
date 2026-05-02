@@ -27,11 +27,20 @@ def _extract_json_object(raw: str) -> str:
             lines = lines[:-1]
         text = "\n".join(lines).strip()
 
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1 or end < start:
-        raise EvaluationParseError("Evaluator output did not contain a JSON object")
-    return text[start : end + 1]
+    decoder = json.JSONDecoder()
+    first_decode_error: json.JSONDecodeError | None = None
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            _, end = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError as exc:
+            first_decode_error = first_decode_error or exc
+            continue
+        return text[index : index + end]
+    if first_decode_error is not None:
+        raise EvaluationParseError(f"Invalid evaluator JSON: {first_decode_error}") from first_decode_error
+    raise EvaluationParseError("Evaluator output did not contain a JSON object")
 
 
 def parse_evaluation(raw: str | dict[str, Any]) -> dict[str, Any]:
@@ -59,4 +68,3 @@ def parse_evaluation(raw: str | dict[str, Any]) -> dict[str, Any]:
             raise EvaluationParseError(f"Evaluator field '{field}' must contain strings")
 
     return data
-

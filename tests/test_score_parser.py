@@ -35,6 +35,25 @@ class ScoreParserTests(unittest.TestCase):
         with self.assertRaises(EvaluationParseError):
             parse_evaluation(raw)
 
+    def test_parses_first_json_object_when_codex_appends_extra_text(self):
+        raw = """
+        {
+          "score": 0.55,
+          "identical": false,
+          "critique": "layout exists but spacing differs",
+          "missing_details": ["button spacing"],
+          "revision_instructions": ["tighten spacing"]
+        }
+
+        Extra commentary that Codex should not have emitted:
+        {"ignored": true}
+        """
+
+        parsed = parse_evaluation(raw)
+
+        self.assertEqual(0.55, parsed["score"])
+        self.assertEqual(["tighten spacing"], parsed["revision_instructions"])
+
 
 if __name__ == "__main__":
     unittest.main()

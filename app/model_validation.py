@@ -18,20 +18,25 @@ KNOWN_TEXT_ONLY_MODELS = {
 
 
 def validate_image_input_models(
-    models: dict[str, str], logger: logging.Logger | None = None
+    models: dict[str, str],
+    logger: logging.Logger | None = None,
+    *,
+    provider: str = "openrouter",
 ) -> None:
+    provider_label = "Codex" if provider == "codex" else "OpenRouter"
     for agent_name, model_name in models.items():
         normalized = model_name.strip()
         if normalized in KNOWN_TEXT_ONLY_MODELS:
             raise ValueError(
                 f"{agent_name} model '{normalized}' does not support image input. "
                 "This workflow sends images through OpenAI Agents SDK input_image payloads, "
-                "so choose a vision-capable OpenRouter model in your environment."
+                f"so choose a vision-capable {provider_label} model."
             )
         if normalized not in KNOWN_VISION_MODELS and logger is not None:
             logger.warning(
-                "Model %s for %s is not in the local vision allowlist; OpenRouter may reject "
+                "Model %s for %s is not in the local vision allowlist; %s may reject "
                 "image inputs if the model architecture lacks image modality support.",
                 normalized,
                 agent_name,
+                provider_label,
             )

@@ -23,12 +23,14 @@ class FakeBrowser:
 class FakePage:
     def __init__(self):
         self.goto_url = None
+        self.screenshot_kwargs = None
 
     async def goto(self, url, *, wait_until):
         self.goto_url = url
         return None
 
     async def screenshot(self, *, path, full_page):
+        self.screenshot_kwargs = {"path": path, "full_page": full_page}
         Path(path).write_bytes(b"screenshot")
 
 
@@ -96,6 +98,7 @@ class RenderScreenshotTests(unittest.TestCase):
                     )
 
                 self.assertEqual(source_path.resolve().as_uri(), context.chromium.page.goto_url)
+                self.assertFalse(context.chromium.page.screenshot_kwargs["full_page"])
                 self.assertTrue(output_path.exists())
 
         asyncio.run(run_test())

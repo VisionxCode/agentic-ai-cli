@@ -64,6 +64,12 @@ class FakeRuntime:
         self.runner = runner
 
 
+class FailingMcpRuntime(FakeRuntime):
+    def __init__(self, runner):
+        super().__init__(runner)
+        self.mcp_servers = [object()]
+
+
 class AgentImageInputTests(unittest.TestCase):
     def test_openrouter_setting_strips_surrounding_whitespace(self):
         with patch.dict(os.environ, {"OPENROUTER_API_KEY": "  secret-key\n"}, clear=True):
@@ -104,6 +110,113 @@ class AgentImageInputTests(unittest.TestCase):
             self.assertEqual(content[0]["type"], "input_text")
             self.assertEqual(content[1]["type"], "input_image")
             self.assertTrue(content[1]["image_url"].startswith("data:image/png;base64,"))
+
+        asyncio.run(run_test())
+
+    def test_coder_falls_back_to_complete_html_when_no_file_created(self):
+        async def run_test():
+            with tempfile.TemporaryDirectory() as temp_dir:
+                image_path = Path(temp_dir) / "original.png"
+                image_path.write_bytes(b"png bytes")
+                source_path = Path(temp_dir) / "src" / "index.html"
+                runner = RecordingRunner(
+                    [
+                        "UPDATED_SOURCE_READY",
+                        "<!doctype html><html><body>fallback</body></html>",
+                    ]
+                )
+                client = CoderAgentClient(FakeRuntime(runner))
+
+                result = await client.generate_html(
+                    original_image_path=image_path,
+                    source_path=source_path,
+                    current_source=None,
+                    previous_evaluation=None,
+                    iteration_number=1,
+                    previous_screenshot_path=None,
+                    user_note=None,
+                )
+
+            self.assertEqual("<!doctype html><html><body>fallback</body></html>", result)
+            self.assertEqual(2, len(runner.calls))
+            fallback_prompt = json.loads(runner.calls[1][1][0]["content"][0]["text"])
+            self.assertEqual(
+                "Return a complete standalone HTML document matching the original image.",
+                fallback_prompt["task"],
+            )
+            self.assertIn("Do not call tools", fallback_prompt["reason"])
+
+        asyncio.run(run_test())
+
+    def test_coder_falls_back_when_model_returns_empty_output_for_existing_source(self):
+        async def run_test():
+            with tempfile.TemporaryDirectory() as temp_dir:
+                image_path = Path(temp_dir) / "original.png"
+                image_path.write_bytes(b"png bytes")
+                source_path = Path(temp_dir) / "src" / "index.html"
+                source_path.parent.mkdir()
+                source_path.write_text("<html><body>old</body></html>", encoding="utf-8")
+                runner = RecordingRunner(
+                    [
+                        "",
+                        "<html><body>revised</body></html>",
+                    ]
+                )
+                client = CoderAgentClient(FakeRuntime(runner))
+
+                result = await client.generate_html(
+                    original_image_path=image_path,
+                    source_path=source_path,
+                    current_source="<html><body>old</body></html>",
+                    previous_evaluation={"revision_instructions": ["make it larger"]},
+                    iteration_number=2,
+                    previous_screenshot_path=None,
+                    user_note=None,
+                )
+
+            self.assertEqual("<html><body>revised</body></html>", result)
+            self.assertEqual(2, len(runner.calls))
+            fallback_prompt = json.loads(runner.calls[1][1][0]["content"][0]["text"])
+            self.assertIn("current_source_preview", fallback_prompt)
+            self.assertEqual({"revision_instructions": ["make it larger"]}, fallback_prompt["previous_evaluation"])
+
+        asyncio.run(run_test())
+
+    def test_configured_coder_uses_tooled_runtime_then_toolless_fallback_runtime(self):
+        async def run_test():
+            with tempfile.TemporaryDirectory() as temp_dir:
+                image_path = Path(temp_dir) / "original.png"
+                image_path.write_bytes(b"png bytes")
+                source_path = Path(temp_dir) / "src" / "index.html"
+                primary_runner = RecordingRunner("UPDATED_SOURCE_READY")
+                fallback_runner = RecordingRunner("<html><body>fallback</body></html>")
+                runtimes = [
+                    FailingMcpRuntime(primary_runner),
+                    FakeRuntime(fallback_runner),
+                ]
+
+                def fake_build_agent_runtime(**kwargs):
+                    return runtimes.pop(0)
+
+                client = CoderAgentClient.from_config(
+                    instructions="instructions",
+                    model_name="model",
+                    provider="codex",
+                )
+                with patch("app.agents.coder_agent.build_agent_runtime", fake_build_agent_runtime):
+                    result = await client.generate_html(
+                        original_image_path=image_path,
+                        source_path=source_path,
+                        current_source=None,
+                        previous_evaluation=None,
+                        iteration_number=1,
+                        previous_screenshot_path=None,
+                        user_note=None,
+                    )
+
+            self.assertEqual("<html><body>fallback</body></html>", result)
+            self.assertEqual(1, len(primary_runner.calls))
+            self.assertEqual(1, len(fallback_runner.calls))
 
         asyncio.run(run_test())
 

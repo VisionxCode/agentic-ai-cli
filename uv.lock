@@ -407,6 +407,7 @@ name = "ibm-hackathon-agent-workflow"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "httpx" },
     { name = "openai-agents" },
     { name = "pillow" },
     { name = "playwright" },
@@ -420,6 +421,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "openai-agents", specifier = ">=0.2.0" },
     { name = "pillow", specifier = ">=10.4.0" },
     { name = "playwright", specifier = ">=1.48.0" },

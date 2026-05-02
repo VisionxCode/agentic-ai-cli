@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 from app.agents.html_file_tools import build_html_file_tools
 from app.agents.image_inputs import image_input_from_path, text_input, user_message_with_content
 from app.agents.reconstruction_priorities import reconstruction_priorities
-from app.agents.sdk_common import AgentRuntime, agent_finish_turns, agent_max_turns, build_openrouter_agent
+from app.agents.sdk_common import AgentRuntime, agent_finish_turns, agent_max_turns, build_agent_runtime
 from app.agents.skill_file_tools import build_skill_file_tools
+from app.job_logging import current_job_logger
 from app.mcp_loader import load_mcp_stdio_servers
 
 
 APP_ROOT = Path(__file__).resolve().parents[1]
+logger = logging.getLogger(__name__)
 
 CODER_TOOL_NAMES = [
     "read_html_file",
@@ -35,11 +38,13 @@ class CoderAgentClient:
         *,
         instructions: str | None = None,
         model_name: str | None = None,
+        provider: str | None = None,
         mcp_config_paths: list[Path] | None = None,
     ) -> None:
         self.runtime = runtime
         self.instructions = instructions
         self.model_name = model_name
+        self.provider = provider
         self.mcp_config_paths = mcp_config_paths or []
 
     @classmethod
@@ -48,11 +53,13 @@ class CoderAgentClient:
         *,
         instructions: str,
         model_name: str,
+        provider: str | None = None,
         mcp_config_paths: list[Path] | None = None,
     ) -> "CoderAgentClient":
         return cls(
             instructions=instructions,
             model_name=model_name,
+            provider=provider,
             mcp_config_paths=mcp_config_paths or [],
         )
 
@@ -193,12 +200,95 @@ class CoderAgentClient:
             if cleanup_mcp_servers is not None:
                 await cleanup_mcp_servers()
         output = str(result.final_output).strip()
+        _log_info(
+            "Coder primary output: chars=%d source_exists=%s preview=%s",
+            len(output),
+            source_path.exists(),
+            _one_line_preview(output),
+        )
         if output.lower().startswith("<!doctype") or output.lower().startswith("<html"):
             source_path.parent.mkdir(parents=True, exist_ok=True)
             source_path.write_text(output, encoding="utf-8")
+        elif not source_path.exists() or not output:
+            fallback_output = await self._run_complete_html_fallback(
+                runtime=runtime,
+                source_path=source_path,
+                original_image_path=original_image_path,
+                previous_screenshot_path=previous_screenshot_path,
+                previous_output=output,
+                current_source=current_source,
+                previous_evaluation=previous_evaluation,
+                iteration_number=iteration_number,
+                user_note=user_note,
+            )
+            _log_info(
+                "Coder fallback output: chars=%d preview=%s",
+                len(fallback_output),
+                _one_line_preview(fallback_output),
+            )
+            if fallback_output.lower().startswith("<!doctype") or fallback_output.lower().startswith("<html"):
+                source_path.parent.mkdir(parents=True, exist_ok=True)
+                source_path.write_text(fallback_output, encoding="utf-8")
         if source_path.exists():
             return source_path.read_text(encoding="utf-8").strip()
         return output
+
+    async def _run_complete_html_fallback(
+        self,
+        *,
+        runtime: AgentRuntime,
+        source_path: Path,
+        original_image_path: Path,
+        previous_screenshot_path: Path | None,
+        previous_output: str,
+        current_source: str | None,
+        previous_evaluation: dict[str, Any] | None,
+        iteration_number: int,
+        user_note: str | None,
+    ) -> str:
+        fallback_runtime = self._fallback_runtime_without_tools(runtime)
+        prompt = {
+            "task": "Return a complete standalone HTML document matching the original image.",
+            "reason": (
+                "The previous attempt did not create index.html and did not return complete HTML. "
+                "Do not call tools in this fallback. Return only the full HTML document."
+            ),
+            "source_path": "index.html",
+            "iteration_number": iteration_number,
+            "previous_output_preview": previous_output[:1000],
+            "current_source_preview": (current_source or "")[:12000],
+            "previous_evaluation": previous_evaluation,
+            "user_note": _clean_user_note(user_note),
+            "requirements": [
+                "Start with <!doctype html> or <html>.",
+                "Include CSS and JavaScript inline unless external files are absolutely necessary.",
+                "If current_source_preview is present, revise it according to previous_evaluation instead of starting from an unrelated layout.",
+                "Do not return markdown, code fences, JSON, explanations, or UPDATED_SOURCE_READY.",
+                "The returned document will be written directly to index.html.",
+            ],
+        }
+        content = [
+            text_input(prompt),
+            image_input_from_path(original_image_path, detail="high"),
+        ]
+        if previous_screenshot_path is not None:
+            content.append(image_input_from_path(previous_screenshot_path, detail="high"))
+        result = await fallback_runtime.runner.run(
+            fallback_runtime.agent,
+            user_message_with_content(content),
+            max_turns=agent_finish_turns(default=3),
+        )
+        return str(result.final_output).strip()
+
+    def _fallback_runtime_without_tools(self, runtime: AgentRuntime) -> AgentRuntime:
+        if self.runtime is not None or self.instructions is None or self.model_name is None:
+            return runtime
+        return build_agent_runtime(
+            name="coder_html_fallback",
+            instructions=self.instructions,
+            model_name=self.model_name,
+            provider=self.provider,
+        )
 
     async def _run_with_tool_error_retry(
         self,
@@ -249,10 +339,11 @@ class CoderAgentClient:
             *build_html_file_tools(source_root=source_root),
             *build_skill_file_tools(APP_ROOT / "skills"),
         ]
-        return build_openrouter_agent(
+        return build_agent_runtime(
             name="coder",
             instructions=self.instructions,
             model_name=self.model_name,
+            provider=self.provider,
             tools=tools,
             mcp_servers=load_mcp_stdio_servers(self.mcp_config_paths),
         )
@@ -320,3 +411,18 @@ def _clean_user_note(user_note: str | None) -> str | None:
         return None
     stripped = user_note.strip()
     return stripped or None
+
+
+def _one_line_preview(text: str, limit: int = 500) -> str:
+    preview = " ".join((text or "").split())
+    if len(preview) <= limit:
+        return preview
+    return f"{preview[:limit]}..."
+
+
+def _log_info(message: str, *args: Any) -> None:
+    job_logger = current_job_logger()
+    if job_logger is not None:
+        job_logger.info(message, *args)
+    else:
+        logger.info(message, *args)

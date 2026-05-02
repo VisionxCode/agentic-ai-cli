@@ -5,7 +5,7 @@ from typing import Any
 
 from app.agents.image_inputs import image_input_from_path, text_input, user_message_with_content
 from app.agents.reconstruction_priorities import reconstruction_priorities
-from app.agents.sdk_common import AgentRuntime, agent_max_turns, build_openrouter_agent
+from app.agents.sdk_common import AgentRuntime, agent_max_turns, build_agent_runtime
 from app.tools.score_parser import EvaluationParseError, parse_evaluation
 
 
@@ -37,13 +37,15 @@ class EvaluatorAgentClient:
         *,
         instructions: str,
         model_name: str,
+        provider: str | None = None,
         coder_tool_context: dict[str, Any] | None = None,
     ) -> "EvaluatorAgentClient":
         return cls(
-            build_openrouter_agent(
+            build_agent_runtime(
                 name="evaluator",
                 instructions=instructions,
                 model_name=model_name,
+                provider=provider,
             ),
             coder_tool_context=coder_tool_context,
         )

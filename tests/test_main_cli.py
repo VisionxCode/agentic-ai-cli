@@ -29,10 +29,11 @@ class MainCliTests(unittest.TestCase):
             image_path.write_bytes(b"image bytes")
             stdout = io.StringIO()
 
-            async def fake_run_job_from_image_path(*, image_path, user_note, job_id):
+            async def fake_run_job_from_image_path(*, image_path, user_note, job_id, provider_override):
                 self.assertEqual(Path(temp_dir) / "original.png", image_path)
                 self.assertEqual("Match the compact layout.", user_note)
                 self.assertIsNone(job_id)
+                self.assertIsNone(provider_override)
                 return result
 
             with patch("app.main.run_job_from_image_path", fake_run_job_from_image_path):
@@ -71,7 +72,7 @@ class MainCliTests(unittest.TestCase):
             image_path.write_bytes(b"image bytes")
             stdout = io.StringIO()
 
-            async def fake_run_job_from_image_path(*, image_path, user_note, job_id):
+            async def fake_run_job_from_image_path(*, image_path, user_note, job_id, provider_override):
                 return result
 
             with patch("app.main.run_job_from_image_path", fake_run_job_from_image_path):
@@ -94,6 +95,122 @@ class MainCliTests(unittest.TestCase):
 
         self.assertEqual(2, exit_code)
         self.assertIn("Image path does not exist", stderr.getvalue())
+
+    def test_cli_passes_provider_override_to_job_runner(self):
+        from app import main
+
+        result = JobResult(
+            job_id="job-provider",
+            status="completed",
+            final_score=1.0,
+            iterations=1,
+            final_source_path=Path("final/source.html"),
+            final_generated_image_path=Path("final/generated_image.png"),
+            final_report_path=Path("final/report.json"),
+            report={},
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "original.png"
+            image_path.write_bytes(b"image bytes")
+            stdout = io.StringIO()
+
+            async def fake_run_job_from_image_path(*, image_path, user_note, job_id, provider_override):
+                self.assertEqual("codex", provider_override)
+                return result
+
+            with patch("app.main.run_job_from_image_path", fake_run_job_from_image_path):
+                with redirect_stdout(stdout):
+                    exit_code = main.main(["--image", str(image_path), "--provider", "codex"])
+
+        self.assertEqual(0, exit_code)
+
+    def test_provider_select_saves_codex_provider_and_model(self):
+        from app import main
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            stdout = io.StringIO()
+            with patch.dict("os.environ", {"IBM_HACKATHON_AGENT_HOME": temp_dir}, clear=True):
+                with redirect_stdout(stdout):
+                    exit_code = main.main(
+                        [
+                            "provider",
+                            "select",
+                            "--provider",
+                            "codex",
+                            "--codex-auth",
+                            "skip",
+                            "--model",
+                            "gpt-codex-test",
+                        ]
+                    )
+
+                config_path = Path(temp_dir) / "config.json"
+                payload = json.loads(config_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual("codex", payload["provider"])
+        self.assertEqual("gpt-codex-test", payload["models"]["codex"]["coder"])
+        self.assertIn("Provider saved: codex", stdout.getvalue())
+
+    def test_provider_status_prints_saved_provider(self):
+        from app import main
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            stdout = io.StringIO()
+            with patch.dict("os.environ", {"IBM_HACKATHON_AGENT_HOME": temp_dir}, clear=True):
+                main.main(
+                    [
+                        "provider",
+                        "select",
+                        "--provider",
+                        "codex",
+                        "--codex-auth",
+                        "skip",
+                        "--model",
+                        "gpt-codex-test",
+                    ]
+                )
+                with redirect_stdout(stdout):
+                    exit_code = main.main(["provider", "status"])
+
+        self.assertEqual(0, exit_code)
+        self.assertIn("provider: codex", stdout.getvalue())
+        self.assertIn("coder_model: gpt-codex-test", stdout.getvalue())
+
+    def test_auth_codex_import_command_imports_cli_auth_file(self):
+        from app import main
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            codex_home = root / "codex"
+            app_home = root / "app"
+            codex_home.mkdir()
+            (codex_home / "auth.json").write_text(
+                json.dumps(
+                    {
+                        "tokens": {
+                            "access_token": "access",
+                            "refresh_token": "refresh",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stdout = io.StringIO()
+
+            with patch.dict(
+                "os.environ",
+                {"IBM_HACKATHON_AGENT_HOME": str(app_home), "CODEX_HOME": str(codex_home)},
+                clear=True,
+            ):
+                with redirect_stdout(stdout):
+                    exit_code = main.main(["auth", "codex", "import"])
+                auth_file_exists = (app_home / "auth.json").exists()
+
+        self.assertEqual(0, exit_code)
+        self.assertIn("Codex credentials imported", stdout.getvalue())
+        self.assertTrue(auth_file_exists)
 
 
 if __name__ == "__main__":

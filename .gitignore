@@ -1,5 +1,6 @@
 .venv/
 .env
+.ibm_hackathon_agent/
 __pycache__/
 *.py[cod]
 .pytest_cache/

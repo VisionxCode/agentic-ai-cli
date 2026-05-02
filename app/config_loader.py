@@ -158,9 +158,38 @@ def load_agent_profile(project_root: Path, agent_name: str) -> AgentProfile:
     )
 
 
-def load_models(project_root: Path) -> dict[str, str]:
+def load_models(project_root: Path, provider: str | None = None) -> dict[str, str]:
+    normalized_provider = (provider or "openrouter").strip().lower()
+    if normalized_provider in {"openai-codex", "openai_codex"}:
+        normalized_provider = "codex"
+
     config = load_yaml_file(project_root / "config" / "models.yaml")
-    models = dict(config.get("models", config))
+    configured_models = dict(config.get("models", config))
+
+    if normalized_provider == "codex":
+        models = _saved_provider_models("codex")
+        shared_model = os.getenv("CODEX_MODEL")
+        if shared_model:
+            models["coder"] = shared_model
+            models["evaluator"] = shared_model
+        if os.getenv("CODEX_CODER_MODEL"):
+            models["coder"] = os.environ["CODEX_CODER_MODEL"]
+        if os.getenv("CODEX_EVALUATOR_MODEL"):
+            models["evaluator"] = os.environ["CODEX_EVALUATOR_MODEL"]
+        missing = [name for name in ("coder", "evaluator") if not models.get(name)]
+        if missing:
+            raise RuntimeError(
+                "Codex is selected but no model is configured for "
+                f"{', '.join(missing)}. Run `python -m app.main provider select` "
+                "or set CODEX_MODEL, CODEX_CODER_MODEL, or CODEX_EVALUATOR_MODEL."
+            )
+        return models
+
+    if normalized_provider != "openrouter":
+        raise ValueError("AI provider must be one of: openrouter, codex")
+
+    models = configured_models
+    models.update(_saved_provider_models("openrouter"))
     shared_model = os.getenv("OPENROUTER_MODEL")
     if shared_model:
         models["coder"] = shared_model
@@ -170,6 +199,15 @@ def load_models(project_root: Path) -> dict[str, str]:
     if os.getenv("OPENROUTER_EVALUATOR_MODEL"):
         models["evaluator"] = os.environ["OPENROUTER_EVALUATOR_MODEL"]
     return models
+
+
+def _saved_provider_models(provider: str) -> dict[str, str]:
+    try:
+        from app.providers.settings import provider_models
+
+        return provider_models(provider)
+    except Exception:
+        return {}
 
 
 def load_thresholds(project_root: Path) -> dict[str, Any]:

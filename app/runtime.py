@@ -12,6 +12,7 @@ from app.config_loader import load_agent_profile, load_env_file, load_models, lo
 from app.job_logging import job_logging_context
 from app.model_validation import validate_image_input_models
 from app.orchestrator import JobOrchestrator, JobRequest, JobResult, RunSettings
+from app.providers.selection import resolve_provider
 from app.tools.render_screenshot import PlaywrightScreenshotRenderer
 
 
@@ -45,14 +46,17 @@ def _logger_for(job_id: str) -> logging.Logger:
     return logger
 
 
-def _build_orchestrator(logger: logging.Logger) -> JobOrchestrator:
-    models = load_models(APP_ROOT)
-    validate_image_input_models(models, logger)
+def _build_orchestrator(logger: logging.Logger, *, provider_override: str | None = None) -> JobOrchestrator:
+    provider = resolve_provider(provider_override)
+    models = load_models(APP_ROOT, provider=provider)
+    validate_image_input_models(models, logger, provider=provider)
     thresholds = load_thresholds(APP_ROOT)
     coder_profile = load_agent_profile(APP_ROOT, "coder")
     evaluator_profile = load_agent_profile(APP_ROOT, "evaluator")
+    logger.info("AI provider=%s", provider)
     logger.info(
-        "AGENT coder model=%s skills=%s registry_tools=%s runtime_tools=%s",
+        "AGENT coder provider=%s model=%s skills=%s registry_tools=%s runtime_tools=%s",
+        provider,
         models["coder"],
         [str(path) for path in coder_profile.skill_paths],
         coder_profile.tool_names,
@@ -76,7 +80,8 @@ def _build_orchestrator(logger: logging.Logger) -> JobOrchestrator:
         [str(path) for path in coder_profile.mcp_config_paths],
     )
     logger.info(
-        "AGENT evaluator model=%s skills=%s registry_tools=%s",
+        "AGENT evaluator provider=%s model=%s skills=%s registry_tools=%s",
+        provider,
         models["evaluator"],
         [str(path) for path in evaluator_profile.skill_paths],
         evaluator_profile.tool_names,
@@ -88,11 +93,13 @@ def _build_orchestrator(logger: logging.Logger) -> JobOrchestrator:
         coder=CoderAgentClient.from_config(
             instructions=coder_profile.instructions,
             model_name=models["coder"],
+            provider=provider,
             mcp_config_paths=coder_profile.mcp_config_paths,
         ),
         evaluator=EvaluatorAgentClient.from_config(
             instructions=evaluator_profile.instructions,
             model_name=models["evaluator"],
+            provider=provider,
             coder_tool_context=_coder_tool_context(coder_profile.tool_names),
         ),
         renderer=PlaywrightScreenshotRenderer(),
@@ -122,14 +129,18 @@ def _coder_tool_context(registry_tool_names: list[str]) -> dict:
 
 
 async def run_job_from_image_path(
-    *, image_path: Path, user_note: str | None = None, job_id: str | None = None
+    *,
+    image_path: Path,
+    user_note: str | None = None,
+    job_id: str | None = None,
+    provider_override: str | None = None,
 ) -> JobResult:
     resolved_job_id = job_id or uuid4().hex
     logger = _logger_for(resolved_job_id)
     logger.info("Starting job")
 
     try:
-        orchestrator = _build_orchestrator(logger)
+        orchestrator = _build_orchestrator(logger, provider_override=provider_override)
         with job_logging_context(logger):
             result = await orchestrator.run(
                 JobRequest(
