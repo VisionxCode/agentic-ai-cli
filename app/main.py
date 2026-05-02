@@ -6,7 +6,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.asyncio_compat import configure_windows_event_loop_policy
-from app.agents.coder_agent import CoderAgentClient
+from app.agents.coder_agent import CODER_TOOL_NAMES, CoderAgentClient
 from app.agents.evaluator_agent import EvaluatorAgentClient
 from app.config_loader import load_agent_profile, load_env_file, load_models, load_thresholds
 from app.job_logging import job_logging_context
@@ -96,6 +96,7 @@ def _build_orchestrator(logger: logging.Logger) -> JobOrchestrator:
         evaluator=EvaluatorAgentClient.from_config(
             instructions=evaluator_profile.instructions,
             model_name=models["evaluator"],
+            coder_tool_context=_coder_tool_context(coder_profile.tool_names),
         ),
         renderer=PlaywrightScreenshotRenderer(),
         settings=RunSettings(
@@ -105,6 +106,22 @@ def _build_orchestrator(logger: logging.Logger) -> JobOrchestrator:
         ),
         logger=logger,
     )
+
+
+def _coder_tool_context(registry_tool_names: list[str]) -> dict:
+    context = {
+        "file_tools": CODER_TOOL_NAMES,
+        "skill_tools": ["list_skill_files", "read_skill_file"],
+        "registry_tools": registry_tool_names,
+        "mcp_tools": [],
+        "asset_guidance": (
+            "For real-world brand assets, the coder can inspect iconography guidance with read_skill_file, "
+            "use available MCP search tools to find official sources, then create local asset files with file tools."
+        ),
+    }
+    if "minimax_mcp" in registry_tool_names:
+        context["mcp_tools"] = ["MiniMax.web_search", "MiniMax.understand_image"]
+    return context
 
 
 @app.post("/jobs")

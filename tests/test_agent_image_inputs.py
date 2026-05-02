@@ -291,6 +291,48 @@ class AgentImageInputTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_evaluator_receives_coder_tool_context_for_actionable_feedback(self):
+        async def run_test():
+            with tempfile.TemporaryDirectory() as temp_dir:
+                original_path = Path(temp_dir) / "original.png"
+                generated_path = Path(temp_dir) / "generated.png"
+                original_path.write_bytes(b"original")
+                generated_path.write_bytes(b"generated")
+                runner = RecordingRunner(
+                    """
+                    {
+                      "score": 0.8,
+                      "identical": false,
+                      "critique": "logos are approximate",
+                      "missing_details": ["real company logos"],
+                      "revision_instructions": ["use available tools to retrieve official logo assets"]
+                    }
+                    """
+                )
+                client = EvaluatorAgentClient(
+                    FakeRuntime(runner),
+                    coder_tool_context={
+                        "file_tools": ["list_source_files", "write_text_file"],
+                        "skill_tools": ["read_skill_file"],
+                        "mcp_tools": ["MiniMax.web_search", "MiniMax.understand_image"],
+                    },
+                )
+
+                await client.evaluate(
+                    original_image_path=original_path,
+                    generated_image_path=generated_path,
+                    user_note=None,
+                )
+
+            prompt = json.loads(runner.calls[0][1][0]["content"][0]["text"])
+            self.assertIn("coder_tool_context", prompt)
+            self.assertIn("MiniMax.web_search", str(prompt["coder_tool_context"]))
+            self.assertIn("read_skill_file", str(prompt["coder_tool_context"]))
+            self.assertIn("tool-aware", prompt["revision_guidance"])
+            self.assertIn("corporate logos", prompt["revision_guidance"])
+
+        asyncio.run(run_test())
+
     def test_evaluator_retries_once_when_output_is_not_json(self):
         async def run_test():
             with tempfile.TemporaryDirectory() as temp_dir:

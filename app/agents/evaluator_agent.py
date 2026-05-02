@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from app.agents.image_inputs import image_input_from_path, text_input, user_message_with_content
 from app.agents.sdk_common import AgentRuntime, agent_max_turns, build_openrouter_agent
@@ -25,17 +26,25 @@ def _fallback_evaluation(raw_output: str, error: Exception) -> dict:
 
 
 class EvaluatorAgentClient:
-    def __init__(self, runtime: AgentRuntime) -> None:
+    def __init__(self, runtime: AgentRuntime, *, coder_tool_context: dict[str, Any] | None = None) -> None:
         self.runtime = runtime
+        self.coder_tool_context = coder_tool_context or {}
 
     @classmethod
-    def from_config(cls, *, instructions: str, model_name: str) -> "EvaluatorAgentClient":
+    def from_config(
+        cls,
+        *,
+        instructions: str,
+        model_name: str,
+        coder_tool_context: dict[str, Any] | None = None,
+    ) -> "EvaluatorAgentClient":
         return cls(
             build_openrouter_agent(
                 name="evaluator",
                 instructions=instructions,
                 model_name=model_name,
-            )
+            ),
+            coder_tool_context=coder_tool_context,
         )
 
     async def evaluate(
@@ -48,6 +57,14 @@ class EvaluatorAgentClient:
         prompt: dict = {
             "task": "Compare the original image and generated screenshot.",
             "user_note": _user_note_context(user_note),
+            "coder_tool_context": self.coder_tool_context,
+            "revision_guidance": (
+                "Make revision_instructions tool-aware when the coder has relevant tools. "
+                "For missing or approximate corporate logos, brand marks, screenshots, or other real-world assets, "
+                "explicitly tell the coder to use the available search/asset tools such as MiniMax.web_search, "
+                "then read the iconography or relevant skill with read_skill_file, save local assets with file tools, "
+                "and reference those assets from the HTML/CSS instead of approximating them from memory."
+            ),
             "output_contract": {
                 "score": "float from 0 to 1",
                 "identical": "boolean",
@@ -95,6 +112,12 @@ class EvaluatorAgentClient:
                     "previous_error": str(exc),
                     "previous_output": raw_output[:4000],
                     "user_note": _user_note_context(user_note),
+                    "coder_tool_context": self.coder_tool_context,
+                    "revision_guidance": (
+                        "Return valid JSON only. Keep revision_instructions actionable for the coder's tools; "
+                        "when real assets are missing or approximated, name the relevant available search, skill, "
+                        "and file tools."
+                    ),
                     "format_warning": (
                         "Previous evaluator output was invalid. Return only one valid JSON object. "
                         "No markdown, no prose, no code fence."
