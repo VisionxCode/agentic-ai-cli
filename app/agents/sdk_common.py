@@ -41,6 +41,43 @@ def agent_max_turns(default: int = 30) -> int:
         return default
 
 
+def openrouter_temperature() -> float | None:
+    value = openrouter_setting("OPENROUTER_TEMPERATURE")
+    if not value:
+        return None
+    try:
+        temperature = float(value)
+    except ValueError as exc:
+        raise ValueError("OPENROUTER_TEMPERATURE must be a number between 0.0 and 2.0") from exc
+    if not 0.0 <= temperature <= 2.0:
+        raise ValueError("OPENROUTER_TEMPERATURE must be between 0.0 and 2.0")
+    return temperature
+
+
+def openrouter_reasoning_extra_body() -> dict[str, Any] | None:
+    reasoning: dict[str, Any] = {}
+    enabled = _bool_setting("OPENROUTER_REASONING_ENABLED")
+    if enabled is not None:
+        reasoning["enabled"] = enabled
+
+    effort = openrouter_setting("OPENROUTER_REASONING_EFFORT")
+    if effort:
+        normalized_effort = effort.lower()
+        allowed_efforts = {"none", "minimal", "low", "medium", "high", "xhigh"}
+        if normalized_effort not in allowed_efforts:
+            allowed = ", ".join(sorted(allowed_efforts))
+            raise ValueError(f"OPENROUTER_REASONING_EFFORT must be one of: {allowed}")
+        reasoning["effort"] = normalized_effort
+
+    exclude = _bool_setting("OPENROUTER_REASONING_EXCLUDE")
+    if exclude is not None:
+        reasoning["exclude"] = exclude
+
+    if not reasoning:
+        return None
+    return {"reasoning": reasoning}
+
+
 def openrouter_provider_extra_body() -> dict[str, Any] | None:
     provider: dict[str, Any] = {}
     for key, env_name in {
@@ -74,6 +111,17 @@ def openrouter_provider_extra_body() -> dict[str, Any] | None:
     if not provider:
         return None
     return {"provider": provider}
+
+
+def openrouter_extra_body() -> dict[str, Any] | None:
+    extra_body: dict[str, Any] = {}
+    for settings in (
+        openrouter_provider_extra_body(),
+        openrouter_reasoning_extra_body(),
+    ):
+        if settings:
+            extra_body.update(settings)
+    return extra_body or None
 
 
 def _csv_setting(name: str) -> list[str]:
@@ -122,9 +170,9 @@ def build_openrouter_agent(
         },
     )
     model = OpenAIChatCompletionsModel(model=model_name, openai_client=client)
-    provider_extra_body = openrouter_provider_extra_body()
-    model_settings = (
-        ModelSettings(extra_body=provider_extra_body) if provider_extra_body else ModelSettings()
+    model_settings = ModelSettings(
+        temperature=openrouter_temperature(),
+        extra_body=openrouter_extra_body(),
     )
     resolved_mcp_servers = mcp_servers or []
     return AgentRuntime(

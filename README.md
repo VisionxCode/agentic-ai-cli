@@ -16,6 +16,8 @@ The Agents SDK is configured with `OpenAIChatCompletionsModel` and `AsyncOpenAI(
 
 Model selection defaults to `app/config/models.yaml`. Set `OPENROUTER_MODEL` in `.env` to use one model for both the coder and evaluator agents, or set `OPENROUTER_CODER_MODEL` and `OPENROUTER_EVALUATOR_MODEL` for separate models.
 
+Optional generation settings can be set in `.env`. `OPENROUTER_TEMPERATURE` accepts `0.0` through `2.0`; blank values use OpenRouter/model defaults. Reasoning can be controlled with `OPENROUTER_REASONING_ENABLED`, `OPENROUTER_REASONING_EFFORT` (`none`, `minimal`, `low`, `medium`, `high`, or `xhigh`), and `OPENROUTER_REASONING_EXCLUDE`. These are sent through OpenRouter's unified `reasoning` request object.
+
 Optional OpenRouter provider routing can be set with `OPENROUTER_PROVIDER_*` variables in `.env`. Blank values are ignored, so the request falls back to OpenRouter's default provider routing. For example, set `OPENROUTER_PROVIDER_ORDER=deepinfra/turbo,together` and `OPENROUTER_PROVIDER_ALLOW_FALLBACKS=false` to prefer those providers and disable fallback routing.
 
 If the coder uses file tools heavily during revisions, increase `OPENROUTER_AGENT_MAX_TURNS` in `.env`. The default is `30`.
