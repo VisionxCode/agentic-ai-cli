@@ -15,7 +15,7 @@ from app.orchestrator import JobOrchestrator, JobRequest, RunSettings
 from app.tools.render_screenshot import PlaywrightScreenshotRenderer
 
 try:
-    from fastapi import FastAPI, File, HTTPException, UploadFile
+    from fastapi import FastAPI, File, Form, HTTPException, UploadFile
     from fastapi.responses import FileResponse
 except ModuleNotFoundError as exc:
     raise RuntimeError("Install REST dependencies with 'uv sync' or 'pip install -e .'") from exc
@@ -108,7 +108,10 @@ def _build_orchestrator(logger: logging.Logger) -> JobOrchestrator:
 
 
 @app.post("/jobs")
-async def create_job(original_image: UploadFile = File(...)) -> dict:
+async def create_job(
+    original_image: UploadFile = File(...),
+    user_note: str | None = Form(None),
+) -> dict:
     suffix = Path(original_image.filename or "original_image.png").suffix or ".png"
     job_id = uuid4().hex
     jobs[job_id] = {"status": "running", "current_iteration": 0, "current_score": None}
@@ -123,6 +126,7 @@ async def create_job(original_image: UploadFile = File(...)) -> dict:
                     job_id=job_id,
                     image_bytes=await original_image.read(),
                     image_extension=suffix,
+                    user_note=user_note,
                 )
             )
     except Exception as exc:

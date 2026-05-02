@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -18,12 +19,13 @@ class Coder(Protocol):
         previous_evaluation: dict[str, Any] | None,
         iteration_number: int,
         previous_screenshot_path: Path | None,
+        user_note: str | None,
     ) -> str: ...
 
 
 class Evaluator(Protocol):
     async def evaluate(
-        self, *, original_image_path: Path, generated_image_path: Path
+        self, *, original_image_path: Path, generated_image_path: Path, user_note: str | None
     ) -> dict[str, Any]: ...
 
 
@@ -43,6 +45,7 @@ class JobRequest:
     job_id: str
     image_bytes: bytes
     image_extension: str = ".png"
+    user_note: str | None = None
 
 
 @dataclass(frozen=True)
@@ -102,21 +105,73 @@ class JobOrchestrator:
         source_path.parent.mkdir(parents=True, exist_ok=True)
 
         for iteration in range(1, self.settings.max_iterations + 1):
+            best_is_latest_iteration = (
+                best_iteration is not None and best_iteration.root.name == f"{iteration - 1:03d}"
+            )
+            if (
+                best_iteration is not None
+                and best_evaluation is not None
+                and not best_is_latest_iteration
+            ):
+                _restore_source_tree(source_root=source_root, iteration=best_iteration)
+                current_source = source_path.read_text(encoding="utf-8").strip()
+                previous_evaluation = best_evaluation
+                last_screenshot = best_iteration.generated_image
+                self.logger.info(
+                    "Iteration %s/%s: restored best-scoring source as edit base score=%s",
+                    iteration,
+                    self.settings.max_iterations,
+                    best_score,
+                )
             source_before = _source_tree_snapshot(source_root)
+            interrupted_status: str | None = None
             self.logger.info(
                 "Iteration %s/%s: asking coder agent to generate/edit HTML at %s",
                 iteration,
                 self.settings.max_iterations,
                 source_path,
             )
-            current_source = await self.coder.generate_html(
-                original_image_path=original_path,
-                source_path=source_path,
-                current_source=current_source,
-                previous_evaluation=previous_evaluation,
-                iteration_number=iteration,
-                previous_screenshot_path=last_screenshot,
-            )
+            try:
+                current_source = await self.coder.generate_html(
+                    original_image_path=original_path,
+                    source_path=source_path,
+                    current_source=current_source,
+                    previous_evaluation=previous_evaluation,
+                    iteration_number=iteration,
+                    previous_screenshot_path=last_screenshot,
+                    user_note=request.user_note,
+                )
+            except Exception as exc:
+                if not _is_agent_max_turns_exceeded(exc):
+                    raise
+                self.logger.warning(
+                    "Iteration %s/%s: coder exceeded max turns; preserving renderable working source if available",
+                    iteration,
+                    self.settings.max_iterations,
+                )
+                if source_path.exists() and source_path.read_text(encoding="utf-8").strip():
+                    current_source = source_path.read_text(encoding="utf-8")
+                    interrupted_status = "agent_max_turns_reached"
+                elif best_iteration is not None and best_evaluation is not None:
+                    self.logger.warning(
+                        "Iteration %s/%s: no renderable partial source; saving previous best score=%s",
+                        iteration,
+                        self.settings.max_iterations,
+                        best_score,
+                    )
+                    final = workspace.save_final_from_iteration(best_iteration, best_evaluation)
+                    return JobResult(
+                        job_id=request.job_id,
+                        status="agent_max_turns_reached",
+                        final_score=best_score,
+                        iterations=iteration - 1,
+                        final_source_path=final.source,
+                        final_generated_image_path=final.generated_image,
+                        final_report_path=final.report,
+                        report=best_evaluation,
+                    )
+                else:
+                    raise
             current_source = _ensure_renderable_source(
                 source_path=source_path,
                 returned_source=current_source,
@@ -157,6 +212,7 @@ class JobOrchestrator:
             evaluation = await self.evaluator.evaluate(
                 original_image_path=original_path,
                 generated_image_path=last_screenshot,
+                user_note=request.user_note,
             )
             iteration_artifacts = workspace.save_iteration(
                 number=iteration,
@@ -179,6 +235,25 @@ class JobOrchestrator:
                 bool(evaluation.get("identical")),
                 evaluation.get("critique", ""),
             )
+            if interrupted_status is not None:
+                self.logger.info(
+                    "Iteration %s/%s: saving best-scoring final artifacts after coder max-turn interruption",
+                    iteration,
+                    self.settings.max_iterations,
+                )
+                assert best_iteration is not None
+                assert best_evaluation is not None
+                final = workspace.save_final_from_iteration(best_iteration, best_evaluation)
+                return JobResult(
+                    job_id=request.job_id,
+                    status=interrupted_status,
+                    final_score=best_score,
+                    iterations=iteration,
+                    final_source_path=final.source,
+                    final_generated_image_path=final.generated_image,
+                    final_report_path=final.report,
+                    report=best_evaluation,
+                )
             if score >= self.settings.target_score or bool(evaluation.get("identical")):
                 self.logger.info(
                     "Iteration %s/%s: target reached, saving best-scoring final artifacts",
@@ -221,6 +296,12 @@ class JobOrchestrator:
         )
 
 
+def _restore_source_tree(*, source_root: Path, iteration: IterationArtifacts) -> None:
+    if source_root.exists():
+        shutil.rmtree(source_root)
+    shutil.copytree(iteration.source_root, source_root)
+
+
 def _source_tree_snapshot(source_root: Path) -> dict[str, str] | None:
     if not source_root.exists():
         return None
@@ -253,3 +334,11 @@ def _ensure_renderable_source(
             f"{source_path} during iteration {iteration}."
         )
     return source
+
+
+def _is_agent_max_turns_exceeded(exc: Exception) -> bool:
+    try:
+        from agents.exceptions import MaxTurnsExceeded
+    except ModuleNotFoundError:
+        return False
+    return isinstance(exc, MaxTurnsExceeded)

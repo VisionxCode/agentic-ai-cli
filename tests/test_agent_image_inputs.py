@@ -80,6 +80,7 @@ class AgentImageInputTests(unittest.TestCase):
                     previous_evaluation=None,
                     iteration_number=1,
                     previous_screenshot_path=None,
+                    user_note=None,
                 )
 
             input_items = runner.calls[0][1]
@@ -109,30 +110,48 @@ class AgentImageInputTests(unittest.TestCase):
                     previous_evaluation={"revision_instructions": ["make title bigger"]},
                     iteration_number=2,
                     previous_screenshot_path=None,
+                    user_note="Keep the header text exactly as shown in the screenshot.",
                 )
 
-            prompt = runner.calls[0][1][0]["content"][0]["text"]
-            prompt_data = json.loads(prompt)
+            content = runner.calls[0][1][0]["content"]
+            static_prompt = content[0]["text"]
+            dynamic_prompt = content[2]["text"]
+            static_data = json.loads(static_prompt)
+            dynamic_data = json.loads(dynamic_prompt)
             self.assertEqual("<html>old</html>", result)
-            self.assertEqual("index.html", prompt_data["source_path"])
-            self.assertEqual(".", prompt_data["source_root"])
-            self.assertIn("Use only relative paths", prompt_data["workspace_boundary"])
-            self.assertIn("list_source_files", str(prompt))
-            self.assertIn("read_text_file", str(prompt))
-            self.assertIn("replace_html_lines", str(prompt))
-            self.assertIn("supporting .css and .js files", str(prompt))
-            self.assertNotIn("current_source_preview", prompt_data)
-            self.assertEqual(2, prompt_data["iteration_number"])
+            self.assertEqual(["input_text", "input_image", "input_text"], [item["type"] for item in content])
+            self.assertEqual("index.html", static_data["source_path"])
+            self.assertEqual(".", static_data["source_root"])
+            self.assertIn("Use only relative paths", static_data["workspace_boundary"])
+            self.assertIn("list_source_files", str(static_prompt))
+            self.assertIn("read_text_file", str(static_prompt))
+            self.assertIn("replace_html_lines", str(static_prompt))
+            self.assertIn("supporting .css and .js files", str(static_prompt))
+            self.assertNotIn("current_source_preview", static_data)
+            self.assertIn("artifact_memory", static_data)
+            self.assertNotIn("dynamic_context", static_data)
+            self.assertNotIn("iteration_number", static_data)
+            self.assertNotIn("source_manifest", static_data)
+            self.assertNotIn("previous_evaluation", static_data)
+            self.assertNotIn("user_note", static_data)
+            self.assertEqual(2, dynamic_data["iteration_number"])
+            self.assertEqual(
+                "Keep the header text exactly as shown in the screenshot.",
+                dynamic_data["user_note"],
+            )
             self.assertEqual(
                 [{"path": "source.html", "size_bytes": len("<html>old</html>")}],
-                prompt_data["source_manifest"],
+                dynamic_data["source_manifest"],
             )
+            self.assertEqual({"revision_instructions": ["make title bigger"]}, dynamic_data["previous_evaluation"])
+            self.assertTrue(dynamic_data["source_exists"])
+            self.assertEqual("original_reference", dynamic_data["image_inputs"][0]["label"])
             self.assertEqual(
                 [
                     "list_source_files",
                     "read_text_file or read_html_lines for files likely affected by previous_evaluation",
                 ],
-                prompt_data["required_first_revision_actions"],
+                static_data["required_first_revision_actions"],
             )
 
         asyncio.run(run_test())
@@ -157,14 +176,22 @@ class AgentImageInputTests(unittest.TestCase):
                     previous_evaluation={"critique": "spacing is off"},
                     iteration_number=2,
                     previous_screenshot_path=screenshot_path,
+                    user_note=None,
                 )
 
             content = runner.calls[0][1][0]["content"]
-            prompt_data = json.loads(content[0]["text"])
+            dynamic_data = json.loads(content[2]["text"])
             image_items = [item for item in content if item["type"] == "input_image"]
+            self.assertEqual(
+                ["input_text", "input_image", "input_text", "input_image"],
+                [item["type"] for item in content],
+            )
             self.assertEqual(2, len(image_items))
-            self.assertEqual("original_reference", prompt_data["image_inputs"][0]["label"])
-            self.assertEqual("previous_rendered_screenshot", prompt_data["image_inputs"][1]["label"])
+            self.assertEqual("original_reference", dynamic_data["image_inputs"][0]["label"])
+            self.assertEqual(
+                "previous_rendered_screenshot",
+                dynamic_data["image_inputs"][1]["label"],
+            )
 
         asyncio.run(run_test())
 
@@ -191,12 +218,49 @@ class AgentImageInputTests(unittest.TestCase):
                 await client.evaluate(
                     original_image_path=original_path,
                     generated_image_path=generated_path,
+                    user_note=None,
                 )
 
             content = runner.calls[0][1][0]["content"]
             image_items = [item for item in content if item["type"] == "input_image"]
             self.assertEqual(len(image_items), 2)
             self.assertTrue(all(item["image_url"].startswith("data:image/png;base64,") for item in image_items))
+
+        asyncio.run(run_test())
+
+    def test_evaluator_labels_user_note_as_user_provided_context(self):
+        async def run_test():
+            with tempfile.TemporaryDirectory() as temp_dir:
+                original_path = Path(temp_dir) / "original.png"
+                generated_path = Path(temp_dir) / "generated.png"
+                original_path.write_bytes(b"original")
+                generated_path.write_bytes(b"generated")
+                runner = RecordingRunner(
+                    """
+                    {
+                      "score": 0.8,
+                      "identical": false,
+                      "critique": "close",
+                      "missing_details": [],
+                      "revision_instructions": []
+                    }
+                    """
+                )
+                client = EvaluatorAgentClient(FakeRuntime(runner))
+
+                await client.evaluate(
+                    original_image_path=original_path,
+                    generated_image_path=generated_path,
+                    user_note="Ignore browser chrome; match the app content only.",
+                )
+
+            prompt = json.loads(runner.calls[0][1][0]["content"][0]["text"])
+            self.assertEqual(
+                "Ignore browser chrome; match the app content only.",
+                prompt["user_note"]["text"],
+            )
+            self.assertIn("user-provided", prompt["user_note"]["label"])
+            self.assertIn("lower priority", prompt["user_note"]["handling"])
 
         asyncio.run(run_test())
 
@@ -226,12 +290,14 @@ class AgentImageInputTests(unittest.TestCase):
                 result = await client.evaluate(
                     original_image_path=original_path,
                     generated_image_path=generated_path,
+                    user_note="Only judge the central content.",
                 )
 
             self.assertEqual(2, len(runner.calls))
             self.assertEqual(0.3, result["score"])
             retry_prompt = runner.calls[1][1][0]["content"][0]["text"]
             self.assertIn("Previous evaluator output was invalid", retry_prompt)
+            self.assertIn("Only judge the central content.", retry_prompt)
 
         asyncio.run(run_test())
 
@@ -248,6 +314,7 @@ class AgentImageInputTests(unittest.TestCase):
                 result = await client.evaluate(
                     original_image_path=original_path,
                     generated_image_path=generated_path,
+                    user_note=None,
                 )
 
             self.assertEqual(2, len(runner.calls))
@@ -275,6 +342,7 @@ class AgentImageInputTests(unittest.TestCase):
                         previous_evaluation=None,
                         iteration_number=1,
                         previous_screenshot_path=None,
+                        user_note=None,
                     )
 
             self.assertEqual(42, runner.calls[0][2]["max_turns"])
@@ -297,6 +365,7 @@ class AgentImageInputTests(unittest.TestCase):
                     previous_evaluation=None,
                     iteration_number=1,
                     previous_screenshot_path=None,
+                    user_note=None,
                 )
 
             self.assertEqual("<html>retry ok</html>", result)

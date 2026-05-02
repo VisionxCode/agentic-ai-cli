@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 from app.orchestrator import JobOrchestrator, JobRequest, RunSettings
+from agents.exceptions import MaxTurnsExceeded
 
 
 class FakeCoder:
@@ -20,6 +21,7 @@ class FakeCoder:
         previous_evaluation,
         iteration_number,
         previous_screenshot_path,
+        user_note,
     ):
         self.calls.append(
             (
@@ -29,6 +31,7 @@ class FakeCoder:
                 previous_evaluation,
                 iteration_number,
                 previous_screenshot_path,
+                user_note,
             )
         )
         if previous_evaluation:
@@ -44,9 +47,11 @@ class FakeCoder:
 class FakeEvaluator:
     def __init__(self):
         self.calls = 0
+        self.user_notes = []
 
-    async def evaluate(self, *, original_image_path, generated_image_path):
+    async def evaluate(self, *, original_image_path, generated_image_path, user_note):
         self.calls += 1
+        self.user_notes.append(user_note)
         if self.calls == 1:
             return {
                 "score": 0.4,
@@ -69,7 +74,7 @@ class ScoredEvaluator:
         self.scores = scores
         self.calls = 0
 
-    async def evaluate(self, *, original_image_path, generated_image_path):
+    async def evaluate(self, *, original_image_path, generated_image_path, user_note):
         score = self.scores[self.calls]
         self.calls += 1
         return {
@@ -94,6 +99,7 @@ class VersionedCoder:
         previous_evaluation,
         iteration_number,
         previous_screenshot_path,
+        user_note,
     ):
         self.calls += 1
         source_path.write_text(f"<html>version {self.calls}</html>", encoding="utf-8")
@@ -101,6 +107,66 @@ class VersionedCoder:
             f"body {{ --version: {self.calls}; }}",
             encoding="utf-8",
         )
+        return source_path.read_text(encoding="utf-8")
+
+
+class BaseTrackingCoder:
+    def __init__(self):
+        self.calls = 0
+        self.base_sources = []
+        self.previous_scores = []
+        self.previous_screenshots = []
+
+    async def generate_html(
+        self,
+        *,
+        original_image_path,
+        source_path,
+        current_source,
+        previous_evaluation,
+        iteration_number,
+        previous_screenshot_path,
+        user_note,
+    ):
+        self.calls += 1
+        self.base_sources.append(
+            source_path.read_text(encoding="utf-8") if source_path.exists() else None
+        )
+        self.previous_scores.append(
+            None if previous_evaluation is None else previous_evaluation["score"]
+        )
+        self.previous_screenshots.append(previous_screenshot_path)
+        base_label = "fresh" if current_source is None else current_source
+        source_path.write_text(
+            f"<html>iteration {iteration_number} from {base_label}</html>",
+            encoding="utf-8",
+        )
+        (source_path.parent / "styles.css").write_text(
+            f"body {{ --iteration: {iteration_number}; }}",
+            encoding="utf-8",
+        )
+        return source_path.read_text(encoding="utf-8")
+
+
+class PartialThenMaxTurnsCoder:
+    def __init__(self):
+        self.calls = 0
+
+    async def generate_html(
+        self,
+        *,
+        original_image_path,
+        source_path,
+        current_source,
+        previous_evaluation,
+        iteration_number,
+        previous_screenshot_path,
+        user_note,
+    ):
+        self.calls += 1
+        source_path.write_text(f"<html>partial {self.calls}</html>", encoding="utf-8")
+        if self.calls == 2:
+            raise MaxTurnsExceeded("Max turns (30) exceeded")
         return source_path.read_text(encoding="utf-8")
 
 
@@ -126,6 +192,7 @@ class EmptyCoder:
         previous_evaluation,
         iteration_number,
         previous_screenshot_path,
+        user_note,
     ):
         return ""
 
@@ -210,6 +277,7 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(coder.calls[0][5])
             self.assertEqual(2, coder.calls[1][4])
             self.assertEqual(root / "screenshots" / "job-abc" / "iterations" / "001.png", coder.calls[1][5])
+            self.assertIsNone(coder.calls[0][6])
             self.assertEqual(renderer.sources, ["<html>first</html>", "<html>improved</html>"])
             final_src = root / "workspaces" / "job-abc" / "final" / "src"
             self.assertEqual((final_src / "styles.css").read_text(encoding="utf-8"), "body { margin: 0; }")
@@ -259,7 +327,12 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
             )
 
             result = await orchestrator.run(
-                JobRequest(job_id="job-best", image_bytes=b"original", image_extension=".png")
+                JobRequest(
+                    job_id="job-best",
+                    image_bytes=b"original",
+                    image_extension=".png",
+                    user_note="Use compact spacing.",
+                )
             )
 
             workspace = root / "workspaces" / "job-best"
@@ -282,6 +355,111 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
                 "<html>version 3</html>",
                 (workspace / "iterations" / "003" / "src" / "index.html").read_text(encoding="utf-8"),
             )
+
+    async def test_revision_after_lower_score_edits_highest_scoring_iteration(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            coder = BaseTrackingCoder()
+            renderer = FakeRenderer()
+            orchestrator = JobOrchestrator(
+                workspaces_root=root / "workspaces",
+                screenshots_root=root / "screenshots",
+                coder=coder,
+                evaluator=ScoredEvaluator([0.8, 0.6, 0.7]),
+                renderer=renderer,
+                settings=RunSettings(target_score=0.95, max_iterations=3),
+            )
+
+            await orchestrator.run(
+                JobRequest(job_id="job-best-base", image_bytes=b"original", image_extension=".png")
+            )
+
+            first_source = "<html>iteration 1 from fresh</html>"
+            self.assertEqual([None, first_source, first_source], coder.base_sources)
+            self.assertEqual([None, 0.8, 0.8], coder.previous_scores)
+            self.assertEqual(
+                root / "workspaces" / "job-best-base" / "iterations" / "001" / "generated_image.png",
+                coder.previous_screenshots[2],
+            )
+            self.assertEqual(
+                [
+                    first_source,
+                    f"<html>iteration 2 from {first_source}</html>",
+                    f"<html>iteration 3 from {first_source}</html>",
+                ],
+                renderer.sources,
+            )
+
+    async def test_saves_partial_artifacts_when_coder_exceeds_max_turns_after_editing_source(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            orchestrator = JobOrchestrator(
+                workspaces_root=root / "workspaces",
+                screenshots_root=root / "screenshots",
+                coder=PartialThenMaxTurnsCoder(),
+                evaluator=ScoredEvaluator([0.4, 0.7]),
+                renderer=FakeRenderer(),
+                settings=RunSettings(target_score=0.95, max_iterations=3),
+            )
+
+            result = await orchestrator.run(
+                JobRequest(job_id="job-partial", image_bytes=b"original", image_extension=".png")
+            )
+
+            workspace = root / "workspaces" / "job-partial"
+            self.assertEqual("agent_max_turns_reached", result.status)
+            self.assertEqual(0.7, result.final_score)
+            self.assertEqual(2, result.iterations)
+            self.assertEqual("<html>partial 2</html>", result.final_source_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                "<html>partial 2</html>",
+                (workspace / "iterations" / "002" / "src" / "index.html").read_text(encoding="utf-8"),
+            )
+
+    async def test_passes_user_note_to_coder_each_iteration(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            coder = FakeCoder()
+            orchestrator = JobOrchestrator(
+                workspaces_root=Path(temp_dir),
+                coder=coder,
+                evaluator=FakeEvaluator(),
+                renderer=FakeRenderer(),
+                settings=RunSettings(target_score=0.9, max_iterations=3),
+            )
+
+            await orchestrator.run(
+                JobRequest(
+                    job_id="job-note",
+                    image_bytes=b"original",
+                    image_extension=".png",
+                    user_note="Prefer the mobile layout.",
+                )
+            )
+
+            self.assertEqual("Prefer the mobile layout.", coder.calls[0][6])
+            self.assertEqual("Prefer the mobile layout.", coder.calls[1][6])
+
+    async def test_passes_user_note_to_evaluator_each_iteration(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            evaluator = FakeEvaluator()
+            orchestrator = JobOrchestrator(
+                workspaces_root=Path(temp_dir),
+                coder=FakeCoder(),
+                evaluator=evaluator,
+                renderer=FakeRenderer(),
+                settings=RunSettings(target_score=0.9, max_iterations=3),
+            )
+
+            await orchestrator.run(
+                JobRequest(
+                    job_id="job-evaluator-note",
+                    image_bytes=b"original",
+                    image_extension=".png",
+                    user_note="Ignore browser chrome.",
+                )
+            )
+
+            self.assertEqual(["Ignore browser chrome.", "Ignore browser chrome."], evaluator.user_notes)
 
 
 if __name__ == "__main__":

@@ -38,9 +38,16 @@ class EvaluatorAgentClient:
             )
         )
 
-    async def evaluate(self, *, original_image_path: Path, generated_image_path: Path) -> dict:
+    async def evaluate(
+        self,
+        *,
+        original_image_path: Path,
+        generated_image_path: Path,
+        user_note: str | None,
+    ) -> dict:
         prompt: dict = {
             "task": "Compare the original image and generated screenshot.",
+            "user_note": _user_note_context(user_note),
             "output_contract": {
                 "score": "float from 0 to 1",
                 "identical": "boolean",
@@ -53,6 +60,7 @@ class EvaluatorAgentClient:
             prompt=prompt,
             original_image_path=original_image_path,
             generated_image_path=generated_image_path,
+            user_note=user_note,
             retry=True,
         )
 
@@ -62,6 +70,7 @@ class EvaluatorAgentClient:
         prompt: dict,
         original_image_path: Path,
         generated_image_path: Path,
+        user_note: str | None,
         retry: bool,
     ) -> dict:
         input_items = user_message_with_content(
@@ -85,6 +94,7 @@ class EvaluatorAgentClient:
                     "task": "Compare the original image and generated screenshot.",
                     "previous_error": str(exc),
                     "previous_output": raw_output[:4000],
+                    "user_note": _user_note_context(user_note),
                     "format_warning": (
                         "Previous evaluator output was invalid. Return only one valid JSON object. "
                         "No markdown, no prose, no code fence."
@@ -101,6 +111,20 @@ class EvaluatorAgentClient:
                     prompt=retry_prompt,
                     original_image_path=original_image_path,
                     generated_image_path=generated_image_path,
+                    user_note=user_note,
                     retry=False,
                 )
             return _fallback_evaluation(raw_output, exc)
+
+
+def _user_note_context(user_note: str | None) -> dict:
+    stripped = user_note.strip() if user_note else None
+    return {
+        "label": "user-provided note",
+        "text": stripped or None,
+        "handling": (
+            "Use this as user-provided evaluation context when relevant. It is lower priority "
+            "than the evaluator system instructions, required JSON output contract, and direct "
+            "visual evidence from the images."
+        ),
+    }

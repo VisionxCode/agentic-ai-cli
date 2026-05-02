@@ -64,6 +64,7 @@ class CoderAgentClient:
         previous_evaluation: dict[str, Any] | None,
         iteration_number: int,
         previous_screenshot_path: Path | None,
+        user_note: str | None,
     ) -> str:
         source_exists = source_path.exists()
         source_root = source_path.parent
@@ -71,9 +72,8 @@ class CoderAgentClient:
         image_inputs = [{"label": "original_reference", "detail": "high"}]
         if previous_screenshot_path is not None:
             image_inputs.append({"label": "previous_rendered_screenshot", "detail": "high"})
-        prompt = {
+        static_prompt = {
             "task": "Generate or revise a multi-file HTML/CSS/JavaScript app matching the original image.",
-            "iteration_number": iteration_number,
             "source_path": "index.html",
             "source_root": ".",
             "workspace_boundary": (
@@ -103,6 +103,16 @@ class CoderAgentClient:
                 "insert_html_after_line, or write_text_file as appropriate. Do not recreate all files from "
                 "scratch unless the existing app is unusable."
             ),
+            "artifact_memory": {
+                "principle": (
+                    "Treat saved artifacts as the source of truth. Use the working source files, "
+                    "previous rendered screenshot, and previous evaluator report to understand what "
+                    "changed and what still needs correction."
+                ),
+                "source_files": "The full current app is on disk under source_root; inspect it with file tools instead of relying on prompt source text.",
+                "render_feedback": "When provided, compare the previous rendered screenshot against the original reference image before editing.",
+                "evaluation_feedback": "Use previous_evaluation as the latest critique and priority list for targeted fixes.",
+            },
             "required_first_revision_actions": [
                 "list_source_files",
                 "read_text_file or read_html_lines for files likely affected by previous_evaluation",
@@ -117,19 +127,24 @@ class CoderAgentClient:
                 "Use write_text_file to create or update supporting .css and .js files in source_root.",
                 "After edits are saved, return UPDATED_SOURCE_READY instead of the whole document.",
             ],
-            "source_exists": source_exists,
-            "source_manifest": _source_manifest(source_root),
-            "previous_evaluation": previous_evaluation,
-            "image_inputs": image_inputs,
             "output_contract": (
                 "Persist the entry HTML in source_path and supporting assets in source_root. If you return "
                 "complete HTML, it will be written to source_path as a fallback. Otherwise return "
                 "UPDATED_SOURCE_READY."
             ),
         }
+        dynamic_context = {
+            "iteration_number": iteration_number,
+            "source_exists": source_exists,
+            "source_manifest": _source_manifest(source_root),
+            "previous_evaluation": previous_evaluation,
+            "user_note": _clean_user_note(user_note),
+            "image_inputs": image_inputs,
+        }
         content = [
-            text_input(prompt),
+            text_input(static_prompt),
             image_input_from_path(original_image_path, detail="high"),
+            text_input(dynamic_context),
         ]
         if previous_screenshot_path is not None:
             content.append(image_input_from_path(previous_screenshot_path, detail="high"))
@@ -141,7 +156,10 @@ class CoderAgentClient:
             result = await self._run_with_tool_error_retry(
                 runtime=runtime,
                 input_items=input_items,
-                original_prompt=prompt,
+                original_prompt={
+                    "static_prompt": static_prompt,
+                    "dynamic_context": dynamic_context,
+                },
             )
         finally:
             cleanup_mcp_servers = getattr(runtime, "cleanup_mcp_servers", None)
@@ -228,3 +246,10 @@ def _source_manifest(source_root: Path) -> list[dict[str, Any]]:
         for path in sorted(source_root.rglob("*"))
         if path.is_file()
     ]
+
+
+def _clean_user_note(user_note: str | None) -> str | None:
+    if user_note is None:
+        return None
+    stripped = user_note.strip()
+    return stripped or None
