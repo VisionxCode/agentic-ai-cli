@@ -237,22 +237,9 @@ class JobOrchestrator:
             )
             if interrupted_status is not None:
                 self.logger.info(
-                    "Iteration %s/%s: saving best-scoring final artifacts after coder max-turn interruption",
+                    "Iteration %s/%s: coder hit max turns; continuing after evaluating partial source",
                     iteration,
                     self.settings.max_iterations,
-                )
-                assert best_iteration is not None
-                assert best_evaluation is not None
-                final = workspace.save_final_from_iteration(best_iteration, best_evaluation)
-                return JobResult(
-                    job_id=request.job_id,
-                    status=interrupted_status,
-                    final_score=best_score,
-                    iterations=iteration,
-                    final_source_path=final.source,
-                    final_generated_image_path=final.generated_image,
-                    final_report_path=final.report,
-                    report=best_evaluation,
                 )
             if score >= self.settings.target_score or bool(evaluation.get("identical")):
                 self.logger.info(

@@ -43,6 +43,21 @@ class ModelBehaviorRetryRunner:
         return FakeRunResult(self.retry_output)
 
 
+class MaxTurnsThenFinishRunner:
+    def __init__(self, finish_output):
+        from agents.exceptions import MaxTurnsExceeded
+
+        self.calls = []
+        self.finish_output = finish_output
+        self.error = MaxTurnsExceeded("Max turns (20) exceeded")
+
+    async def run(self, agent, input_items, **kwargs):
+        self.calls.append((agent, input_items, kwargs))
+        if len(self.calls) == 1:
+            raise self.error
+        return FakeRunResult(self.finish_output)
+
+
 class FakeRuntime:
     def __init__(self, runner):
         self.agent = object()
@@ -494,6 +509,45 @@ class AgentImageInputTests(unittest.TestCase):
                     )
 
             self.assertEqual(42, runner.calls[0][2]["max_turns"])
+
+        asyncio.run(run_test())
+
+    def test_coder_uses_finish_turn_budget_after_max_turns(self):
+        async def run_test():
+            with tempfile.TemporaryDirectory() as temp_dir:
+                image_path = Path(temp_dir) / "original.png"
+                image_path.write_bytes(b"png bytes")
+                source_path = Path(temp_dir) / "src" / "index.html"
+                source_path.parent.mkdir()
+                source_path.write_text("<html>partial</html>", encoding="utf-8")
+                runner = MaxTurnsThenFinishRunner("UPDATED_SOURCE_READY")
+                client = CoderAgentClient(FakeRuntime(runner))
+
+                with patch.dict(
+                    os.environ,
+                    {
+                        "OPENROUTER_AGENT_MAX_TURNS": "20",
+                        "OPENROUTER_AGENT_FINISH_TURNS": "5",
+                    },
+                ):
+                    result = await client.generate_html(
+                        original_image_path=image_path,
+                        source_path=source_path,
+                        current_source="<html>old</html>",
+                        previous_evaluation={"revision_instructions": ["fix spacing"]},
+                        iteration_number=2,
+                        previous_screenshot_path=None,
+                        user_note=None,
+                    )
+
+            self.assertEqual("<html>partial</html>", result)
+            self.assertEqual(2, len(runner.calls))
+            self.assertEqual(20, runner.calls[0][2]["max_turns"])
+            self.assertEqual(5, runner.calls[1][2]["max_turns"])
+            finish_prompt = json.loads(runner.calls[1][1][0]["content"][0]["text"])
+            self.assertEqual("Finalize the current iteration after hitting the turn budget.", finish_prompt["task"])
+            self.assertIn("Do not investigate new approaches", finish_prompt["instructions"])
+            self.assertIn("UPDATED_SOURCE_READY", finish_prompt["output_contract"])
 
         asyncio.run(run_test())
 

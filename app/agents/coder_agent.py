@@ -6,7 +6,7 @@ from typing import Any
 from app.agents.html_file_tools import build_html_file_tools
 from app.agents.image_inputs import image_input_from_path, text_input, user_message_with_content
 from app.agents.reconstruction_priorities import reconstruction_priorities
-from app.agents.sdk_common import AgentRuntime, agent_max_turns, build_openrouter_agent
+from app.agents.sdk_common import AgentRuntime, agent_finish_turns, agent_max_turns, build_openrouter_agent
 from app.agents.skill_file_tools import build_skill_file_tools
 from app.mcp_loader import load_mcp_stdio_servers
 
@@ -214,14 +214,31 @@ class CoderAgentClient:
                 max_turns=agent_max_turns(),
             )
         except Exception as exc:
+            if _is_agent_max_turns_exceeded(exc):
+                finish_prompt = _finish_after_max_turns_prompt(original_prompt, exc)
+                return await runtime.runner.run(
+                    runtime.agent,
+                    user_message_with_content([text_input(finish_prompt)]),
+                    max_turns=agent_finish_turns(),
+                )
             if not _is_model_behavior_error(exc):
                 raise
             retry_prompt = _tool_error_retry_prompt(original_prompt, exc)
-            return await runtime.runner.run(
-                runtime.agent,
-                user_message_with_content([text_input(retry_prompt)]),
-                max_turns=agent_max_turns(),
-            )
+            try:
+                return await runtime.runner.run(
+                    runtime.agent,
+                    user_message_with_content([text_input(retry_prompt)]),
+                    max_turns=agent_max_turns(),
+                )
+            except Exception as retry_exc:
+                if not _is_agent_max_turns_exceeded(retry_exc):
+                    raise
+                finish_prompt = _finish_after_max_turns_prompt(original_prompt, retry_exc)
+                return await runtime.runner.run(
+                    runtime.agent,
+                    user_message_with_content([text_input(finish_prompt)]),
+                    max_turns=agent_finish_turns(),
+                )
 
     def _runtime_for_source_root(self, source_root: Path) -> AgentRuntime:
         if self.runtime is not None:
@@ -249,6 +266,14 @@ def _is_model_behavior_error(exc: Exception) -> bool:
     return isinstance(exc, ModelBehaviorError)
 
 
+def _is_agent_max_turns_exceeded(exc: Exception) -> bool:
+    try:
+        from agents.exceptions import MaxTurnsExceeded
+    except ModuleNotFoundError:
+        return False
+    return isinstance(exc, MaxTurnsExceeded)
+
+
 def _tool_error_retry_prompt(original_prompt: dict[str, Any], exc: Exception) -> dict[str, Any]:
     return {
         "task": "Recover from an invalid tool call and continue the same coding task.",
@@ -258,6 +283,21 @@ def _tool_error_retry_prompt(original_prompt: dict[str, Any], exc: Exception) ->
             "do not add leading/trailing spaces or invent aliases."
         ),
         "valid_tool_names": CODER_TOOL_NAMES,
+        "original_task": original_prompt,
+    }
+
+
+def _finish_after_max_turns_prompt(original_prompt: dict[str, Any], exc: Exception) -> dict[str, Any]:
+    return {
+        "task": "Finalize the current iteration after hitting the turn budget.",
+        "previous_error": str(exc),
+        "instructions": (
+            "You reached the per-iteration turn budget. Do not investigate new approaches, "
+            "do not redesign large sections, and do not call tools for broad exploration. "
+            "Make only the minimum edits needed to leave index.html and related files renderable, "
+            "save files immediately, then stop."
+        ),
+        "output_contract": "When files are saved, return exactly UPDATED_SOURCE_READY.",
         "original_task": original_prompt,
     }
 

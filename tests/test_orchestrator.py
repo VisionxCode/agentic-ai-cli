@@ -390,14 +390,14 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
                 renderer.sources,
             )
 
-    async def test_saves_partial_artifacts_when_coder_exceeds_max_turns_after_editing_source(self):
+    async def test_continues_after_saving_partial_iteration_when_coder_exceeds_max_turns(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             orchestrator = JobOrchestrator(
                 workspaces_root=root / "workspaces",
                 screenshots_root=root / "screenshots",
                 coder=PartialThenMaxTurnsCoder(),
-                evaluator=ScoredEvaluator([0.4, 0.7]),
+                evaluator=ScoredEvaluator([0.4, 0.7, 0.8]),
                 renderer=FakeRenderer(),
                 settings=RunSettings(target_score=0.95, max_iterations=3),
             )
@@ -407,13 +407,17 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
             )
 
             workspace = root / "workspaces" / "job-partial"
-            self.assertEqual("agent_max_turns_reached", result.status)
-            self.assertEqual(0.7, result.final_score)
-            self.assertEqual(2, result.iterations)
-            self.assertEqual("<html>partial 2</html>", result.final_source_path.read_text(encoding="utf-8"))
+            self.assertEqual("max_iterations_reached", result.status)
+            self.assertEqual(0.8, result.final_score)
+            self.assertEqual(3, result.iterations)
+            self.assertEqual("<html>partial 3</html>", result.final_source_path.read_text(encoding="utf-8"))
             self.assertEqual(
                 "<html>partial 2</html>",
                 (workspace / "iterations" / "002" / "src" / "index.html").read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                "<html>partial 3</html>",
+                (workspace / "iterations" / "003" / "src" / "index.html").read_text(encoding="utf-8"),
             )
 
     async def test_passes_user_note_to_coder_each_iteration(self):

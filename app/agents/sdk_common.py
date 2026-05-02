@@ -41,6 +41,16 @@ def agent_max_turns(default: int = 30) -> int:
         return default
 
 
+def agent_finish_turns(default: int = 5) -> int:
+    value = openrouter_setting("OPENROUTER_AGENT_FINISH_TURNS")
+    if not value:
+        return default
+    try:
+        return max(1, int(value))
+    except ValueError:
+        return default
+
+
 def openrouter_temperature() -> float | None:
     value = openrouter_setting("OPENROUTER_TEMPERATURE")
     if not value:

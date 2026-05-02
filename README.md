@@ -20,4 +20,4 @@ Optional generation settings can be set in `.env`. `OPENROUTER_TEMPERATURE` acce
 
 Optional OpenRouter provider routing can be set with `OPENROUTER_PROVIDER_*` variables in `.env`. Blank values are ignored, so the request falls back to OpenRouter's default provider routing. For example, set `OPENROUTER_PROVIDER_ORDER=deepinfra/turbo,together` and `OPENROUTER_PROVIDER_ALLOW_FALLBACKS=false` to prefer those providers and disable fallback routing.
 
-If the coder uses file tools heavily during revisions, increase `OPENROUTER_AGENT_MAX_TURNS` in `.env`. The default is `30`.
+If the coder uses file tools heavily during revisions, increase `OPENROUTER_AGENT_MAX_TURNS` in `.env`. The default is `30` per coder attempt. If the coder reaches that budget, the app makes one bounded finalization pass using `OPENROUTER_AGENT_FINISH_TURNS` (`5` by default) to save a renderable partial result before the outer workflow continues to the next iteration.
