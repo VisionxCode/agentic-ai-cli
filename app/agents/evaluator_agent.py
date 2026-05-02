@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from app.agents.image_inputs import image_input_from_path, text_input, user_message_with_content
+from app.agents.reconstruction_priorities import reconstruction_priorities
 from app.agents.sdk_common import AgentRuntime, agent_max_turns, build_openrouter_agent
 from app.tools.score_parser import EvaluationParseError, parse_evaluation
 
@@ -57,6 +58,7 @@ class EvaluatorAgentClient:
         prompt: dict = {
             "task": "Compare the original image and generated screenshot.",
             "user_note": _user_note_context(user_note),
+            "reconstruction_priorities": reconstruction_priorities(),
             "coder_tool_context": self.coder_tool_context,
             "revision_guidance": (
                 "Make revision_instructions tool-aware when the coder has relevant tools. "
@@ -112,6 +114,7 @@ class EvaluatorAgentClient:
                     "previous_error": str(exc),
                     "previous_output": raw_output[:4000],
                     "user_note": _user_note_context(user_note),
+                    "reconstruction_priorities": reconstruction_priorities(),
                     "coder_tool_context": self.coder_tool_context,
                     "revision_guidance": (
                         "Return valid JSON only. Keep revision_instructions actionable for the coder's tools; "

@@ -5,6 +5,7 @@ from typing import Any
 
 from app.agents.html_file_tools import build_html_file_tools
 from app.agents.image_inputs import image_input_from_path, text_input, user_message_with_content
+from app.agents.reconstruction_priorities import reconstruction_priorities
 from app.agents.sdk_common import AgentRuntime, agent_max_turns, build_openrouter_agent
 from app.agents.skill_file_tools import build_skill_file_tools
 from app.mcp_loader import load_mcp_stdio_servers
@@ -80,6 +81,7 @@ class CoderAgentClient:
                 "The file tools are scoped to this job's source folder. Use only relative paths "
                 "such as index.html, styles.css, and app.js. Do not use absolute paths."
             ),
+            "reconstruction_priorities": reconstruction_priorities(),
             "skill_context": {
                 "available_tools": [
                     "list_skill_files(skill_name, relative_dir='.')",

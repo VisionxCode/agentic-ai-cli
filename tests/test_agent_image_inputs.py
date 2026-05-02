@@ -156,6 +156,16 @@ class AgentImageInputTests(unittest.TestCase):
             self.assertIn("components.jsx", str(static_prompt))
             self.assertNotIn("current_source_preview", static_data)
             self.assertIn("artifact_memory", static_data)
+            self.assertIn("reconstruction_priorities", static_data)
+            priorities = static_data["reconstruction_priorities"]
+            self.assertEqual("ui_first", priorities["default_mode"])
+            self.assertIn("navigation", priorities["primary_ui"])
+            self.assertIn("forms", priorities["primary_ui"])
+            self.assertIn("feed posts", priorities["content_surfaces"])
+            self.assertIn("comments", priorities["content_surfaces"])
+            self.assertIn("representative appearance", priorities["content_surface_rule"])
+            self.assertIn("UI labels", priorities["exact_text_policy"])
+            self.assertIn("user note", priorities["override_policy"])
             self.assertNotIn("dynamic_context", static_data)
             self.assertNotIn("iteration_number", static_data)
             self.assertNotIn("source_manifest", static_data)
@@ -330,6 +340,75 @@ class AgentImageInputTests(unittest.TestCase):
             self.assertIn("read_skill_file", str(prompt["coder_tool_context"]))
             self.assertIn("tool-aware", prompt["revision_guidance"])
             self.assertIn("corporate logos", prompt["revision_guidance"])
+
+        asyncio.run(run_test())
+
+    def test_evaluator_receives_ui_first_reconstruction_priorities(self):
+        async def run_test():
+            with tempfile.TemporaryDirectory() as temp_dir:
+                original_path = Path(temp_dir) / "original.png"
+                generated_path = Path(temp_dir) / "generated.png"
+                original_path.write_bytes(b"original")
+                generated_path.write_bytes(b"generated")
+                runner = RecordingRunner(
+                    """
+                    {
+                      "score": 0.8,
+                      "identical": false,
+                      "critique": "close",
+                      "missing_details": [],
+                      "revision_instructions": []
+                    }
+                    """
+                )
+                client = EvaluatorAgentClient(FakeRuntime(runner))
+
+                await client.evaluate(
+                    original_image_path=original_path,
+                    generated_image_path=generated_path,
+                    user_note=None,
+                )
+
+            prompt = json.loads(runner.calls[0][1][0]["content"][0]["text"])
+            priorities = prompt["reconstruction_priorities"]
+            self.assertEqual("ui_first", priorities["default_mode"])
+            self.assertIn("component structure", priorities["primary_ui"])
+            self.assertIn("message bodies", priorities["content_surfaces"])
+            self.assertIn("do not over-optimize exact authored text", priorities["content_surface_rule"])
+            self.assertIn("Penalize broken or unprofessional UI structure", priorities["evaluator_scoring_guidance"])
+            self.assertIn("user note", priorities["override_policy"])
+
+        asyncio.run(run_test())
+
+    def test_user_note_can_request_exact_incidental_content(self):
+        async def run_test():
+            with tempfile.TemporaryDirectory() as temp_dir:
+                original_path = Path(temp_dir) / "original.png"
+                generated_path = Path(temp_dir) / "generated.png"
+                original_path.write_bytes(b"original")
+                generated_path.write_bytes(b"generated")
+                runner = RecordingRunner(
+                    """
+                    {
+                      "score": 0.8,
+                      "identical": false,
+                      "critique": "close",
+                      "missing_details": [],
+                      "revision_instructions": []
+                    }
+                    """
+                )
+                client = EvaluatorAgentClient(FakeRuntime(runner))
+
+                await client.evaluate(
+                    original_image_path=original_path,
+                    generated_image_path=generated_path,
+                    user_note="Match the post content exactly.",
+                )
+
+            prompt = json.loads(runner.calls[0][1][0]["content"][0]["text"])
+            self.assertEqual("Match the post content exactly.", prompt["user_note"]["text"])
+            self.assertIn("override", prompt["reconstruction_priorities"]["override_policy"])
 
         asyncio.run(run_test())
 
