@@ -46,7 +46,14 @@ def _logger_for(job_id: str) -> logging.Logger:
     return logger
 
 
-def _build_orchestrator(logger: logging.Logger, *, provider_override: str | None = None) -> JobOrchestrator:
+def _build_orchestrator(
+    logger: logging.Logger,
+    *,
+    provider_override: str | None = None,
+    viewport: dict[str, int] | None = None,
+    max_iterations: int | None = None,
+    target_score: float | None = None,
+) -> JobOrchestrator:
     provider = resolve_provider(provider_override)
     models = load_models(APP_ROOT, provider=provider)
     validate_image_input_models(models, logger, provider=provider)
@@ -104,9 +111,13 @@ def _build_orchestrator(logger: logging.Logger, *, provider_override: str | None
         ),
         renderer=PlaywrightScreenshotRenderer(),
         settings=RunSettings(
-            target_score=float(thresholds.get("target_score", 0.95)),
-            max_iterations=int(thresholds.get("max_iterations", 5)),
-            viewport=dict(thresholds.get("viewport", {"width": 1440, "height": 900})),
+            target_score=float(
+                target_score if target_score is not None else thresholds.get("target_score", 0.95)
+            ),
+            max_iterations=int(
+                max_iterations if max_iterations is not None else thresholds.get("max_iterations", 5)
+            ),
+            viewport=viewport or dict(thresholds.get("viewport", {"width": 1440, "height": 900})),
         ),
         logger=logger,
     )
@@ -134,13 +145,22 @@ async def run_job_from_image_path(
     user_note: str | None = None,
     job_id: str | None = None,
     provider_override: str | None = None,
+    viewport: dict[str, int] | None = None,
+    max_iterations: int | None = None,
+    target_score: float | None = None,
 ) -> JobResult:
     resolved_job_id = job_id or uuid4().hex
     logger = _logger_for(resolved_job_id)
     logger.info("Starting job")
 
     try:
-        orchestrator = _build_orchestrator(logger, provider_override=provider_override)
+        orchestrator = _build_orchestrator(
+            logger,
+            provider_override=provider_override,
+            viewport=viewport,
+            max_iterations=max_iterations,
+            target_score=target_score,
+        )
         with job_logging_context(logger):
             result = await orchestrator.run(
                 JobRequest(

@@ -403,7 +403,7 @@ wheels = [
 ]
 
 [[package]]
-name = "ibm-hackathon-agent-workflow"
+name = "agentic-ai-cli"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

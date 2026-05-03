@@ -20,8 +20,8 @@ class HtmlFileToolTests(unittest.TestCase):
             source_root.mkdir(parents=True)
 
             self.assertEqual(
-                source_root / "styles.css",
-                scoped_source_path(source_root, "styles.css"),
+                (source_root / "styles.css").resolve(),
+                scoped_source_path(source_root, "styles.css").resolve(),
             )
 
     def test_read_html_line_range_uses_session_scoped_relative_path(self):

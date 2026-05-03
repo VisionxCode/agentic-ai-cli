@@ -1,5 +1,6 @@
 import logging
 import unittest
+from unittest.mock import patch
 
 from app.runtime import _build_orchestrator
 
@@ -10,8 +11,9 @@ class MainLoggingTests(unittest.TestCase):
         logger.handlers.clear()
         logger.propagate = True
 
-        with self.assertLogs("test.agent-setup", level="INFO") as logs:
-            _build_orchestrator(logger)
+        with patch.dict("os.environ", {"OPENROUTER_API_KEY": "test-key"}):
+            with self.assertLogs("test.agent-setup", level="INFO") as logs:
+                _build_orchestrator(logger)
 
         output = "\n".join(logs.output)
         self.assertIn("AGENT coder", output)

@@ -1,5 +1,5 @@
 [project]
-name = "ibm-hackathon-agent-workflow"
+name = "agentic-ai-cli"
 version = "0.1.0"
 description = "Modular OpenAI Agents SDK workflow using OpenRouter for image-to-source-code reconstruction."
 requires-python = ">=3.11"

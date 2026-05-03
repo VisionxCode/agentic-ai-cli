@@ -44,6 +44,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--image", required=True, help="Path to the original image.")
     parser.add_argument("--note", default=None, help="Optional guidance for the coder and evaluator.")
     parser.add_argument("--job-id", default=None, help="Optional job id for deterministic artifact paths.")
+    parser.add_argument("--viewport-width", type=int, default=None, help="Rendered viewport width.")
+    parser.add_argument("--viewport-height", type=int, default=None, help="Rendered viewport height.")
+    parser.add_argument("--max-iterations", type=int, default=None, help="Maximum improvement loop iterations.")
+    parser.add_argument("--target-score", type=float, default=None, help="Score threshold for early completion.")
     parser.add_argument(
         "--provider",
         choices=["openrouter", "codex"],
@@ -126,6 +130,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(image_error, file=sys.stderr)
         return 2
 
+    runtime_controls = _runtime_controls_from_args(args)
+    if isinstance(runtime_controls, str):
+        print(runtime_controls, file=sys.stderr)
+        return 2
+
     try:
         result = asyncio.run(
             run_job_from_image_path(
@@ -133,6 +142,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 user_note=args.note,
                 job_id=args.job_id,
                 provider_override=args.provider,
+                viewport=runtime_controls["viewport"],
+                max_iterations=runtime_controls["max_iterations"],
+                target_score=runtime_controls["target_score"],
             )
         )
     except Exception as exc:
@@ -170,6 +182,27 @@ def _validate_image_path(image_path: Path) -> str | None:
     if not image_path.is_file():
         return f"Image path is not a file: {image_path}"
     return None
+
+
+def _runtime_controls_from_args(args: argparse.Namespace) -> dict[str, object] | str:
+    viewport = None
+    if args.viewport_width is not None or args.viewport_height is not None:
+        if args.viewport_width is None or args.viewport_height is None:
+            return "--viewport-width and --viewport-height must be provided together."
+        if args.viewport_width <= 0 or args.viewport_height <= 0:
+            return "Viewport dimensions must be positive."
+        viewport = {"width": args.viewport_width, "height": args.viewport_height}
+
+    if args.max_iterations is not None and args.max_iterations <= 0:
+        return "--max-iterations must be positive."
+    if args.target_score is not None and not 0 <= args.target_score <= 1:
+        return "--target-score must be between 0 and 1."
+
+    return {
+        "viewport": viewport,
+        "max_iterations": args.max_iterations,
+        "target_score": args.target_score,
+    }
 
 
 def provider_main(argv: Sequence[str] | None = None) -> int:

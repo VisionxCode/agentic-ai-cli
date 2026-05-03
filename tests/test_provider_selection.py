@@ -51,25 +51,25 @@ class FakeAgent:
 class ProviderSelectionTests(unittest.TestCase):
     def test_provider_defaults_to_openrouter(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            with patch.dict(os.environ, {"IBM_HACKATHON_AGENT_HOME": temp_dir}, clear=True):
+            with patch.dict(os.environ, {"AGENTIC_AI_CLI_HOME": temp_dir}, clear=True):
                 self.assertEqual("openrouter", resolve_provider())
 
     def test_provider_uses_env_when_no_saved_config_exists(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            env = {"IBM_HACKATHON_AGENT_HOME": temp_dir, "AI_PROVIDER": "codex"}
+            env = {"AGENTIC_AI_CLI_HOME": temp_dir, "AI_PROVIDER": "codex"}
             with patch.dict(os.environ, env, clear=True):
                 self.assertEqual("codex", resolve_provider())
 
     def test_saved_provider_wins_over_env_provider(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            env = {"IBM_HACKATHON_AGENT_HOME": temp_dir, "AI_PROVIDER": "codex"}
+            env = {"AGENTIC_AI_CLI_HOME": temp_dir, "AI_PROVIDER": "codex"}
             with patch.dict(os.environ, env, clear=True):
                 save_active_provider("openrouter")
                 self.assertEqual("openrouter", resolve_provider())
 
     def test_cli_provider_override_wins_over_saved_config(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            with patch.dict(os.environ, {"IBM_HACKATHON_AGENT_HOME": temp_dir}, clear=True):
+            with patch.dict(os.environ, {"AGENTIC_AI_CLI_HOME": temp_dir}, clear=True):
                 save_active_provider("openrouter")
                 self.assertEqual("codex", resolve_provider("codex"))
 
@@ -80,7 +80,7 @@ class ProviderSelectionTests(unittest.TestCase):
     def test_codex_model_env_overrides_saved_models(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             env = {
-                "IBM_HACKATHON_AGENT_HOME": temp_dir,
+                "AGENTIC_AI_CLI_HOME": temp_dir,
                 "CODEX_MODEL": "gpt-codex-shared",
                 "CODEX_EVALUATOR_MODEL": "gpt-codex-eval",
             }
@@ -96,7 +96,7 @@ class ProviderSelectionTests(unittest.TestCase):
 
     def test_codex_model_missing_fails_clearly(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            with patch.dict(os.environ, {"IBM_HACKATHON_AGENT_HOME": temp_dir}, clear=True):
+            with patch.dict(os.environ, {"AGENTIC_AI_CLI_HOME": temp_dir}, clear=True):
                 with self.assertRaisesRegex(RuntimeError, "Codex is selected but no model"):
                     load_models(Path("app"), provider="codex")
 
@@ -122,7 +122,7 @@ class ProviderSelectionTests(unittest.TestCase):
             )
 
             env = {
-                "IBM_HACKATHON_AGENT_HOME": str(app_home),
+                "AGENTIC_AI_CLI_HOME": str(app_home),
                 "CODEX_HOME": str(codex_home),
             }
             with patch.dict(os.environ, env, clear=True):
@@ -135,7 +135,7 @@ class ProviderSelectionTests(unittest.TestCase):
 
     def test_codex_refresh_updates_stored_tokens(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            with patch.dict(os.environ, {"IBM_HACKATHON_AGENT_HOME": temp_dir}, clear=True):
+            with patch.dict(os.environ, {"AGENTIC_AI_CLI_HOME": temp_dir}, clear=True):
                 save_codex_tokens(
                     {
                         "access_token": _jwt_with_exp(1),
@@ -163,7 +163,7 @@ class ProviderSelectionTests(unittest.TestCase):
             set_tracing_disabled=lambda disabled: None,
         )
         with tempfile.TemporaryDirectory() as temp_dir:
-            with patch.dict(os.environ, {"IBM_HACKATHON_AGENT_HOME": temp_dir}, clear=True):
+            with patch.dict(os.environ, {"AGENTIC_AI_CLI_HOME": temp_dir}, clear=True):
                 save_codex_tokens(
                     {
                         "access_token": _jwt_with_exp(9999999999, account_id="acct_123"),

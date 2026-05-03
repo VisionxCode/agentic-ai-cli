@@ -14,7 +14,7 @@ uv run python -m app.main --image path\to\original.png --note "Optional guidance
 
 The command prints the job status, score, iteration count, final artifact paths, and per-job log path. Add `--json` for machine-readable output, or `--job-id your-id` to choose the workspace/log id.
 
-Provider selection is saved in a user-local config file at `~/.ibm_hackathon_agent/config.json` by default. Use `--provider openrouter` or `--provider codex` on a single image run to override the saved choice without changing it.
+Provider selection is saved in a user-local config file at `~/.agentic_ai_cli/config.json` by default. Use `--provider openrouter` or `--provider codex` on a single image run to override the saved choice without changing it.
 
 ## OpenRouter API key mode
 
@@ -28,7 +28,7 @@ Optional OpenRouter provider routing can be set with `OPENROUTER_PROVIDER_*` var
 
 ## Codex OAuth mode
 
-Codex mode uses user-owned Codex/ChatGPT OAuth credentials and stores this app's copied credentials in `~/.ibm_hackathon_agent/auth.json` by default. It can import existing Codex CLI credentials from `~/.codex/auth.json` without mutating the Codex CLI file.
+Codex mode uses user-owned Codex/ChatGPT OAuth credentials and stores this app's copied credentials in `~/.agentic_ai_cli/auth.json` by default. It can import existing Codex CLI credentials from `~/.codex/auth.json` without mutating the Codex CLI file.
 
 ```powershell
 uv run python -m app.main auth codex import

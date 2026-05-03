@@ -29,11 +29,23 @@ class MainCliTests(unittest.TestCase):
             image_path.write_bytes(b"image bytes")
             stdout = io.StringIO()
 
-            async def fake_run_job_from_image_path(*, image_path, user_note, job_id, provider_override):
+            async def fake_run_job_from_image_path(
+                *,
+                image_path,
+                user_note,
+                job_id,
+                provider_override,
+                viewport,
+                max_iterations,
+                target_score,
+            ):
                 self.assertEqual(Path(temp_dir) / "original.png", image_path)
                 self.assertEqual("Match the compact layout.", user_note)
                 self.assertIsNone(job_id)
                 self.assertIsNone(provider_override)
+                self.assertIsNone(viewport)
+                self.assertIsNone(max_iterations)
+                self.assertIsNone(target_score)
                 return result
 
             with patch("app.main.run_job_from_image_path", fake_run_job_from_image_path):
@@ -72,7 +84,19 @@ class MainCliTests(unittest.TestCase):
             image_path.write_bytes(b"image bytes")
             stdout = io.StringIO()
 
-            async def fake_run_job_from_image_path(*, image_path, user_note, job_id, provider_override):
+            async def fake_run_job_from_image_path(
+                *,
+                image_path,
+                user_note,
+                job_id,
+                provider_override,
+                viewport,
+                max_iterations,
+                target_score,
+            ):
+                self.assertIsNone(viewport)
+                self.assertIsNone(max_iterations)
+                self.assertIsNone(target_score)
                 return result
 
             with patch("app.main.run_job_from_image_path", fake_run_job_from_image_path):
@@ -115,8 +139,20 @@ class MainCliTests(unittest.TestCase):
             image_path.write_bytes(b"image bytes")
             stdout = io.StringIO()
 
-            async def fake_run_job_from_image_path(*, image_path, user_note, job_id, provider_override):
+            async def fake_run_job_from_image_path(
+                *,
+                image_path,
+                user_note,
+                job_id,
+                provider_override,
+                viewport,
+                max_iterations,
+                target_score,
+            ):
                 self.assertEqual("codex", provider_override)
+                self.assertIsNone(viewport)
+                self.assertIsNone(max_iterations)
+                self.assertIsNone(target_score)
                 return result
 
             with patch("app.main.run_job_from_image_path", fake_run_job_from_image_path):
@@ -125,12 +161,66 @@ class MainCliTests(unittest.TestCase):
 
         self.assertEqual(0, exit_code)
 
+
+    def test_cli_passes_runtime_controls_to_job_runner(self):
+        from app import main
+
+        result = JobResult(
+            job_id="job-controls",
+            status="completed",
+            final_score=0.95,
+            iterations=3,
+            final_source_path=Path("final/source.html"),
+            final_generated_image_path=Path("final/generated_image.png"),
+            final_report_path=Path("final/report.json"),
+            report={},
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            image_path = Path(temp_dir) / "original.png"
+            image_path.write_bytes(b"image bytes")
+            stdout = io.StringIO()
+
+            async def fake_run_job_from_image_path(
+                *,
+                image_path,
+                user_note,
+                job_id,
+                provider_override,
+                viewport,
+                max_iterations,
+                target_score,
+            ):
+                self.assertEqual({"width": 1280, "height": 720}, viewport)
+                self.assertEqual(3, max_iterations)
+                self.assertEqual(0.9, target_score)
+                return result
+
+            with patch("app.main.run_job_from_image_path", fake_run_job_from_image_path):
+                with redirect_stdout(stdout):
+                    exit_code = main.main(
+                        [
+                            "--image",
+                            str(image_path),
+                            "--viewport-width",
+                            "1280",
+                            "--viewport-height",
+                            "720",
+                            "--max-iterations",
+                            "3",
+                            "--target-score",
+                            "0.9",
+                        ]
+                    )
+
+        self.assertEqual(0, exit_code)
+
     def test_provider_select_saves_codex_provider_and_model(self):
         from app import main
 
         with tempfile.TemporaryDirectory() as temp_dir:
             stdout = io.StringIO()
-            with patch.dict("os.environ", {"IBM_HACKATHON_AGENT_HOME": temp_dir}, clear=True):
+            with patch.dict("os.environ", {"AGENTIC_AI_CLI_HOME": temp_dir}, clear=True):
                 with redirect_stdout(stdout):
                     exit_code = main.main(
                         [
@@ -158,7 +248,7 @@ class MainCliTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             stdout = io.StringIO()
-            with patch.dict("os.environ", {"IBM_HACKATHON_AGENT_HOME": temp_dir}, clear=True):
+            with patch.dict("os.environ", {"AGENTIC_AI_CLI_HOME": temp_dir}, clear=True):
                 main.main(
                     [
                         "provider",
@@ -201,7 +291,7 @@ class MainCliTests(unittest.TestCase):
 
             with patch.dict(
                 "os.environ",
-                {"IBM_HACKATHON_AGENT_HOME": str(app_home), "CODEX_HOME": str(codex_home)},
+                {"AGENTIC_AI_CLI_HOME": str(app_home), "CODEX_HOME": str(codex_home)},
                 clear=True,
             ):
                 with redirect_stdout(stdout):

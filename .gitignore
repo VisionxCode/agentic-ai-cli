@@ -1,14 +1,66 @@
-.venv/
+# Local environment and secrets
 .env
+.env.*
+!.env.example
+!**/.env.example
+*.pem
+*.key
+
+# Python virtual environments
+.venv/
+venv/
+env/
+.agentic_ai_cli/
 .ibm_hackathon_agent/
+
+# Python caches, reports, and build output
 __pycache__/
 *.py[cod]
+*$py.class
 .pytest_cache/
+.mypy_cache/
 .ruff_cache/
+.pyre/
+.pytype/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+build/
+dist/
+*.egg-info/
+.eggs/
 
+# Browser/test artifacts
+playwright-report/
+test-results/
+
+# Runtime artifacts created by agent jobs
 app/logs/*.log
 app/workspaces/*
 app/screenshots/*
 !app/workspaces/.gitkeep
 !app/logs/.gitkeep
 !app/screenshots/.gitkeep
+
+# Logs and local databases
+*.log
+logs/
+*.sqlite
+*.sqlite3
+
+# Node/frontend dependencies if added locally
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS/editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo

@@ -1,0 +1,22 @@
+name: Agent Deploy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy agent on VM
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/agentic-ai-cli
+            git pull --ff-only
+            cd /opt/platform-bff
+            AGENT_REPO_PATH=/opt/agentic-ai-cli docker compose up -d --build worker
